@@ -27,9 +27,9 @@ def challenge_step(env: Tressette2PEnv, agent1: Tressette2PAgent, agent2: Tresse
 
 def challenge(agent1: Tressette2PAgent, agent2: Tressette2PAgent, episodes: int) -> tuple[int, int]:
     points_1, points_2 = 0, 0
-    env = env_factory(render_mode='human')
 
     for _ in range(episodes):
+        env = env_factory(render_mode='human')
         challenge_step(env, agent1, agent2)
         points_1 += env.scores['p1']
         points_2 += env.scores['p2']
