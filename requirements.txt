@@ -1,3 +1,5 @@
 pettingzoo
 gymnasium
 numpy
+torch
+matplotlib

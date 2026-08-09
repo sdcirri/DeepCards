@@ -19,7 +19,7 @@ CARD_POWER = {
 
 @dataclass(frozen=True, slots=True)
 class Card:
-    suite: Suit
+    suit: Suit
     number: int
 
     @property
@@ -35,7 +35,7 @@ class Card:
         return CARD_POWER[self.number]
 
     def __str__(self) -> str:
-        return f'Card [{self.number} of {self.suite.value}]'
+        return f'Card [{self.number} of {self.suit.value}]'
 
 
 @dataclass(slots=True)
@@ -56,7 +56,7 @@ class Hand:
         for card in self.cards:
             if card.number in (1, 2, 3):
                 buongiochi[card.number-1] += 1
-                napoli[card.suite] += 1
+                napoli[card.suit] += 1
 
         return sum(3 if n == 3 else 0 for n in napoli.values()) + sum(b if b >= 3 else 0 for b in buongiochi)
 
@@ -64,10 +64,10 @@ class Hand:
         cards = self.cards.copy()
         if trick is None:
             return cards
-        same_suite = [c for c in cards if c.suite == trick.suite]
-        if not same_suite:
+        same_suit = [c for c in cards if c.suit == trick.suit]
+        if not same_suit:
             return cards
-        return same_suite
+        return same_suit
 
     def see_card(self, card: Card) -> None:
         """
@@ -104,7 +104,7 @@ def first_card_wins(card1: Card, card2: Card) -> bool:
     Returns True if the first played card (card1)
     wins, False otherwise
     """
-    if card1.suite != card2.suite:
+    if card1.suit != card2.suit:
         return True
 
     return card1.power > card2.power
