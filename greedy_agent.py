@@ -28,4 +28,3 @@ class GreedyAgent(Tressette2PAgent):
                 reverse=True
         )
         return CARD_INDEX[legal[0]]
-
