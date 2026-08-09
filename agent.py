@@ -1,10 +1,10 @@
 from gymnasium.utils import seeding
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 from environment import Tressette2PEnv, AgentId, Action, env as env_factory
 
 
-class Tressette2PAgent:
+class Tressette2PAgent(ABC):
     whoami: AgentId
 
     def __init__(self, whoami: AgentId) -> None:
