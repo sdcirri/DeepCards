@@ -76,12 +76,12 @@ def train_step(
 ) -> float:
     states, actions, rewards, next_states, next_masks, dones = zip(*replay_buffer.sample(batch_size))
 
-    states = torch.tensor(states, dtype=torch.float32, device=device)
-    actions = torch.tensor(actions, dtype=torch.long, device=device)
-    rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
-    next_states = torch.tensor(next_states, dtype=torch.float32, device=device)
-    next_masks = torch.tensor(next_masks, dtype=torch.float32, device=device)
-    dones = torch.tensor(dones, dtype=torch.float32, device=device)
+    states = torch.as_tensor(np.stack(states), dtype=torch.float32, device=device)
+    actions = torch.as_tensor(actions, dtype=torch.long, device=device)
+    rewards = torch.as_tensor(rewards, dtype=torch.float32, device=device)
+    next_states = torch.as_tensor(np.stack(next_states), dtype=torch.float32, device=device)
+    next_masks = torch.as_tensor(np.stack(next_masks), dtype=torch.float32, device=device)
+    dones = torch.as_tensor(dones, dtype=torch.float32, device=device)
 
     q_values = online_net(states)
     chosen_q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
