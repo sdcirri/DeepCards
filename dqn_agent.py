@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch
 
+from environment import AgentId, Tressette2PEnv, Action
 from agent import Tressette2PAgent
 from game import DECK
 
@@ -18,15 +19,15 @@ class CardNN(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
                 nn.Linear(120, 256),
-                nn.ReLU(),
+                nn.LeakyReLU(),
                 nn.Linear(256, 256),
-                nn.ReLU(),
+                nn.LeakyReLU(),
                 nn.Linear(256, 128),
-                nn.ReLU(),
+                nn.LeakyReLU(),
                 nn.Linear(128, actions)
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
@@ -34,8 +35,8 @@ class ReplayBuffer:
     def __init__(self, capacity: int) -> None:
         self.buffer = deque(maxlen=capacity)
 
-    def add(self, state, action, reward, next_state, done) -> None:
-        self.buffer.append((state, action, reward, next_state, done))
+    def add(self, state, action, reward, next_state, next_mask, done) -> None:
+        self.buffer.append((state, action, reward, next_state, next_mask, done))
 
     def sample(self, batch_size: int) -> list[tuple]:
         return random.sample(self.buffer, batch_size)
@@ -44,7 +45,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-def choose_action(state, mask, net: CardNN, epsilon: float, actions: int, device) -> int:
+def choose_action(state: np.ndarray, mask: np.ndarray, net: CardNN, epsilon: float, device: torch.device) -> int:
     legal_actions = np.flatnonzero(mask)  # indices where mask == 1
 
     if legal_actions.size == 0:
@@ -67,18 +68,19 @@ def choose_action(state, mask, net: CardNN, epsilon: float, actions: int, device
 def train_step(
         online_net: CardNN,
         target_net: CardNN,
-        optimizer,
+        optimizer: optim.Optimizer,
         replay_buffer: ReplayBuffer,
         batch_size: int,
         gamma: float,
-        device
-):
-    states, actions, rewards, next_states, dones = zip(*replay_buffer.sample(batch_size))
+        device: torch.device
+) -> float:
+    states, actions, rewards, next_states, next_masks, dones = zip(*replay_buffer.sample(batch_size))
 
     states = torch.tensor(states, dtype=torch.float32, device=device)
     actions = torch.tensor(actions, dtype=torch.long, device=device)
     rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
     next_states = torch.tensor(next_states, dtype=torch.float32, device=device)
+    next_masks = torch.tensor(next_masks, dtype=torch.float32, device=device)
     dones = torch.tensor(dones, dtype=torch.float32, device=device)
 
     q_values = online_net(states)
@@ -86,10 +88,16 @@ def train_step(
 
     with torch.no_grad():
         next_q_values = target_net(next_states)
+        next_q_values[next_masks == 0] = -float('inf')
         best_next_q_values = next_q_values.max(dim=1).values
+        # if a whole row is illegal (terminal), max is -inf — clamp those to 0:
+        best_next_q_values = torch.where(
+            next_masks.sum(dim=1) > 0,
+            best_next_q_values,
+            torch.zeros_like(best_next_q_values),
+        )
 
         targets = rewards + gamma * best_next_q_values * (1 - dones)
-
     loss = nn.functional.smooth_l1_loss(chosen_q_values, targets)
     optimizer.zero_grad()
     loss.backward()
@@ -100,8 +108,8 @@ def train_step(
 
 
 def train(
-        env,
-        whoami,
+        env: Tressette2PEnv,
+        whoami: AgentId,
         episodes: int,
         actions: int,
         device: torch.device,
@@ -125,7 +133,6 @@ def train(
 
     for episode in range(episodes):
         env.reset()
-        done = False
         ep_reward = 0
 
         while whoami in env.agents and not (env.terminations[whoami] or env.truncations[whoami]):
@@ -137,12 +144,26 @@ def train(
             obs = env.observe(whoami)
             state, mask = obs['observation'], obs['action_mask']
 
-            action = choose_action(state, mask, online_net, epsilon, actions, device)
+            action = choose_action(state, mask, online_net, epsilon, device)
             env.step(action)
-            next_state = env.observe(whoami)['observation']
             reward = env.rewards[whoami]
             done = env.terminations[whoami]
-            replay_buffer.add(state, action, reward, next_state, done)
+
+            # Opponent plays until it's our turn again or the game ends.
+            while (
+                    not done and whoami in env.agents and env.agent_selection != whoami
+                    and not (env.terminations[whoami] or env.truncations[whoami])
+            ):
+                m = env.observe(env.agent_selection)['action_mask']
+                legal = np.flatnonzero(m)
+                env.step(int(np.random.choice(legal)) if legal.size else None)
+                done = env.terminations[whoami]
+
+            next_obs = env.observe(whoami)
+            next_state = next_obs['observation']
+            next_mask = next_obs['action_mask']
+
+            replay_buffer.add(state, action, reward, next_state, next_mask, done)
             ep_reward += reward
             total_steps += 1
 
@@ -169,11 +190,16 @@ class DQNAgent(Tressette2PAgent):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     net: CardNN
 
-    def __init__(self, whoami, training_env) -> None:
-        super().__init__(whoami)
-        self.net = train(training_env, whoami, 200, 40, self.device)
+    def __init__(self, whoami: AgentId, trained_net: CardNN) -> None:
+        super().__init__(whoami, 'DQN Agent')
+        self.net = trained_net
 
-    def step(self, env):
+    @staticmethod
+    def train(whoami: AgentId, training_env: Tressette2PEnv, verbose_training: bool=False) -> 'DQNAgent':
+        net = train(training_env, whoami, 5000, 40, DQNAgent.device, verbose_training)
+        return DQNAgent(whoami, net)
+
+    def step(self, env: Tressette2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
             return None
 
@@ -182,7 +208,6 @@ class DQNAgent(Tressette2PAgent):
         while True:
             obs = env.observe(self.whoami)
             state, mask = obs['observation'], obs['action_mask']
-            action = choose_action(state, mask, self.net, 0.05, 40, self.device)
+            action = choose_action(state, mask, self.net, 0, self.device)
             if DECK[action] in legal:
-                print(f'{self.whoami} plays {DECK[action]}')
                 return action

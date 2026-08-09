@@ -10,6 +10,8 @@ class RandomAgent(Tressette2PAgent):
     """
     Play a random card as long as it's playable
     """
+    def __init__(self, whoami: AgentId) -> None:
+        super().__init__(whoami, 'Random Agent')
 
     def step(self, env: Tressette2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
@@ -20,6 +22,4 @@ class RandomAgent(Tressette2PAgent):
         while True:
             action = self.np_random.integers(low=0, high=40, dtype=np.int32)
             if DECK[action] in legal:
-                print(f'{self.whoami} plays {DECK[action]}')
                 return action
-

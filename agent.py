@@ -6,9 +6,11 @@ from environment import Tressette2PEnv, AgentId, Action, env as env_factory
 
 class Tressette2PAgent(ABC):
     whoami: AgentId
+    name: str
 
-    def __init__(self, whoami: AgentId) -> None:
+    def __init__(self, whoami: AgentId, name: str) -> None:
         self.whoami = whoami
+        self.name = name
         self.np_random, self.np_random_seed = seeding.np_random(None)
 
     @abstractmethod
@@ -29,9 +31,11 @@ def challenge(agent1: Tressette2PAgent, agent2: Tressette2PAgent, episodes: int)
     points_1, points_2 = 0, 0
 
     for _ in range(episodes):
-        env = env_factory(render_mode='human')
+        env = env_factory(render_mode=None)
         challenge_step(env, agent1, agent2)
-        points_1 += env.scores['p1']
-        points_2 += env.scores['p2']
+
+        # Points are stored in thirds, score is truncated at the end of the game
+        points_1 += env.scores['p1'] // 3
+        points_2 += env.scores['p2'] // 3
 
     return points_1, points_2

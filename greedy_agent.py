@@ -9,6 +9,8 @@ class GreedyAgent(Tressette2PAgent):
     Always respond with the strongest card, but
     always "vola" with the weakest
     """
+    def __init__(self, whoami: AgentId) -> None:
+        super().__init__(whoami, 'Greedy Agent')
 
     def step(self, env: Tressette2PEnv) -> Action | None:
         def greedy_strategy(card: Card, lead: Card | None) -> int:
@@ -25,6 +27,5 @@ class GreedyAgent(Tressette2PAgent):
                 key=lambda c: greedy_strategy(c, lead),
                 reverse=True
         )
-        print(f'{self.whoami} plays {legal[0]}')
         return CARD_INDEX[legal[0]]
 

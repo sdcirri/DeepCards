@@ -232,6 +232,8 @@ class Tressette2PEnv(AECEnv[AgentId, Observation, Action]):
         self.agent_selection = winner
 
         if self._game_finished():
+            # Extra point (three thirds) for last win
+            self.rewards[winner] += 3
             self.terminations = {agent: True for agent in self.agents}
             self._deads_step_first()
 
