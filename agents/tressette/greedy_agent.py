@@ -1,7 +1,7 @@
-from environment import Tressette2PEnv, AgentId, Action
-from game import Card, CARD_INDEX
+from environments.tressette_env import Tressette2PEnv, AgentId, Action
+from games.tressette import Card, CARD_INDEX
 
-from agent import Tressette2PAgent
+from agents.tressette.agent import Tressette2PAgent
 
 
 class GreedyAgent(Tressette2PAgent):

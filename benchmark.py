@@ -3,14 +3,14 @@ from pathlib import Path
 
 import torch
 
-from environment import env as env_factory, AgentId
+from environments.tressette_env import env as env_factory, AgentId
 
-from points_aware_greedy_agent import PointsAwareGreedyAgent
-from dqn_agent import DQNAgent, train, CardNN
-from random_agent import RandomAgent
-from greedy_agent import GreedyAgent
+from agents.tressette.points_aware_greedy_agent import PointsAwareGreedyAgent
+from agents.tressette.dqn_agent import DQNAgent, train, CardNN
+from agents.tressette.random_agent import RandomAgent
+from agents.tressette.greedy_agent import GreedyAgent
 
-from agent import challenge, Tressette2PAgent
+from agents.tressette.agent import challenge, Tressette2PAgent
 
 
 AgentFactory = Callable[[AgentId], Tressette2PAgent]

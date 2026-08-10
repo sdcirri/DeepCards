@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 from pettingzoo.test import api_test, seed_test
 
-from environment import env
-from game import DECK, Card, Suit, first_card_wins
+from environments.tressette_env import env
+from games.tressette import DECK, Card, Suit, first_card_wins
 
 
 def test_deck() -> None:

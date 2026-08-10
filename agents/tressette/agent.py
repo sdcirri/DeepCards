@@ -1,7 +1,7 @@
 from gymnasium.utils import seeding
 from abc import abstractmethod, ABC
 
-from environment import Tressette2PEnv, AgentId, Action, env as env_factory
+from environments.tressette_env import Tressette2PEnv, AgentId, Action, env as env_factory
 
 
 class Tressette2PAgent(ABC):

@@ -9,9 +9,9 @@ import torch.optim as optim
 import torch.nn as nn
 import torch
 
-from environment import AgentId, Tressette2PEnv, Action
-from agent import Tressette2PAgent
-from game import DECK
+from environments.tressette_env import AgentId, Tressette2PEnv, Action
+from agents.tressette.agent import Tressette2PAgent
+from games.tressette import DECK
 
 
 class CardNN(nn.Module):

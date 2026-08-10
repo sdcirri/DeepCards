@@ -1,9 +1,9 @@
 import numpy as np
 
-from environment import Tressette2PEnv, AgentId, Action
-from game import DECK
+from environments.tressette_env import Tressette2PEnv, AgentId, Action
+from games.tressette import DECK
 
-from agent import Tressette2PAgent
+from agents.tressette.agent import Tressette2PAgent
 
 
 class RandomAgent(Tressette2PAgent):

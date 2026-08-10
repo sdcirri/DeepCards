@@ -10,7 +10,7 @@ from gymnasium import spaces
 from pettingzoo.utils import wrappers
 from pettingzoo import AECEnv
 
-from game import DECK, CARD_INDEX, Hand, Card, first_card_wins
+from games.tressette import DECK, CARD_INDEX, Hand, Card, first_card_wins
 
 
 AgentId: TypeAlias = Literal['p1', 'p2']
