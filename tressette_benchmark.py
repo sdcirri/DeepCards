@@ -29,10 +29,10 @@ else:
     dqn_net = train(
         env_factory(render_mode=None),
         'p1',
-        5000,
         40,
         DQNAgent.device,
-        RandomAgent('p2'),
+        [RandomAgent('p2'), GreedyAgent('p2'), PointsAwareGreedyAgent('p2')],
+        [1000, 1000, 3000],
         False
     )
     torch.save(dqn_net.state_dict(), MODEL_PATH)

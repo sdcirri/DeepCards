@@ -95,9 +95,12 @@ def train_step(
     chosen_q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
     with torch.no_grad():
-        next_q_values = target_net(next_states)
-        next_q_values[next_masks == 0] = -float('inf')
-        best_next_q_values = next_q_values.max(dim=1).values
+        online_next = online_net(next_states)
+        online_next[next_masks == 0] = -float('inf')
+        next_actions = online_next.argmax(dim=1)
+
+        target_next = target_net(next_states)
+        best_next_q_values = target_next.gather(1, next_actions.unsqueeze(1)).squeeze(1)
         best_next_q_values = torch.where(
             next_masks.sum(dim=1) > 0,
             best_next_q_values,
@@ -134,15 +137,18 @@ def plot_losses(losses: list[float]) -> None:
 
 
 def train(
-    env: Any,
-    whoami: AgentId,
-    episodes: int,
-    actions: int,
-    obs_dim: int,
-    device: torch.device,
-    training_opponent: Cards2PAgent,
-    verbose: bool = True,
+        env: Any,
+        whoami: AgentId,
+        actions: int,
+        obs_dim: int,
+        device: torch.device,
+        training_opponents: list[Cards2PAgent],
+        episodes_per_opponent: list[int],
+        verbose: bool = True,
 ) -> CardNN:
+    if len(training_opponents) != len(episodes_per_opponent):
+        raise RuntimeError('Length mismatch between training_opponents and episodes_per_opponent')
+
     online_net = CardNN(obs_dim, actions).to(device)
     target_net = CardNN(obs_dim, actions).to(device)
     target_net.load_state_dict(online_net.state_dict())
@@ -152,64 +158,65 @@ def train(
 
     batch_size = 64
     gamma = 0.99
-    epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
     target_update_frequency = 1000
     total_steps = 0
     losses: list[float] = []
 
-    for episode in range(episodes):
-        env.reset()
+    for i, opponent in enumerate(training_opponents):
+        epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
+        for episode in range(episodes_per_opponent[i]):
+            env.reset()
 
-        while whoami in env.agents and not (env.terminations[whoami] or env.truncations[whoami]):
-            if env.agent_selection != whoami:
-                env.step(training_opponent.step(env))
-                continue
+            while whoami in env.agents and not (env.terminations[whoami] or env.truncations[whoami]):
+                if env.agent_selection != whoami:
+                    env.step(opponent.step(env))
+                    continue
 
-            obs = env.observe(whoami)
-            state, mask = obs['observation'], obs['action_mask']
+                obs = env.observe(whoami)
+                state, mask = obs['observation'], obs['action_mask']
 
-            action = choose_action(state, mask, online_net, epsilon, device)
-            env.step(action)
-            # Include rewards from our step and intervening opponent steps
-            # (trick points are often assigned when the opponent follows).
-            reward = float(env.rewards[whoami])
-            done = env.terminations[whoami]
-
-            while (
-                not done
-                and whoami in env.agents
-                and env.agent_selection != whoami
-                and not (env.terminations[whoami] or env.truncations[whoami])
-            ):
-                env.step(training_opponent.step(env))
-                reward += float(env.rewards[whoami])
+                action = choose_action(state, mask, online_net, epsilon, device)
+                env.step(action)
+                # Include rewards from our step and intervening opponent steps
+                # (trick points are often assigned when the opponent follows).
+                reward = float(env.rewards[whoami])
                 done = env.terminations[whoami]
 
-            next_obs = env.observe(whoami)
-            next_state = next_obs['observation']
-            next_mask = next_obs['action_mask']
+                while (
+                    not done
+                    and whoami in env.agents
+                    and env.agent_selection != whoami
+                    and not (env.terminations[whoami] or env.truncations[whoami])
+                ):
+                    env.step(opponent.step(env))
+                    reward += float(env.rewards[whoami])
+                    done = env.terminations[whoami]
 
-            replay_buffer.add(state, action, reward, next_state, next_mask, done)
-            total_steps += 1
+                next_obs = env.observe(whoami)
+                next_state = next_obs['observation']
+                next_mask = next_obs['action_mask']
 
-            if len(replay_buffer) >= batch_size:
-                loss = train_step(
-                    online_net,
-                    target_net,
-                    optimizer,
-                    replay_buffer,
-                    batch_size,
-                    gamma,
-                    device,
-                )
-                if verbose:
-                    print(f'Episode: {episode}, Steps: {total_steps}, Loss: {loss}')
-                losses.append(loss)
+                replay_buffer.add(state, action, reward, next_state, next_mask, done)
+                total_steps += 1
 
-            if total_steps % target_update_frequency == 0:
-                target_net.load_state_dict(online_net.state_dict())
+                if len(replay_buffer) >= batch_size:
+                    loss = train_step(
+                        online_net,
+                        target_net,
+                        optimizer,
+                        replay_buffer,
+                        batch_size,
+                        gamma,
+                        device,
+                    )
+                    if verbose:
+                        print(f'Episode: {episode}, Steps: {total_steps}, Loss: {loss}')
+                    losses.append(loss)
 
-        epsilon = max(epsilon_min, epsilon * epsilon_decay)
+                if total_steps % target_update_frequency == 0:
+                    target_net.load_state_dict(online_net.state_dict())
+
+            epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
     if verbose:
         print(f'Training done, avg loss: {sum(losses) / len(losses) if losses else float("nan")}')

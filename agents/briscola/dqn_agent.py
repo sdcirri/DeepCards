@@ -18,24 +18,22 @@ class CardNN(BaseCardNN):
 
 
 def train(
-    env: Briscola2PEnv,
-    whoami: AgentId,
-    episodes: int,
-    actions: int,
-    device,
-    training_opponent: Cards2PAgent | None = None,
-    verbose: bool = True,
+        env: Briscola2PEnv,
+        whoami: AgentId,
+        actions: int,
+        device,
+        training_opponents: list[Cards2PAgent],
+        episodes_per_opponent: list[int],
+        verbose: bool = True,
 ) -> CardNN:
-    if training_opponent is None:
-        training_opponent = RandomAgent('p2' if whoami == 'p1' else 'p1')
     return dqn_train(  # type: ignore[return-value]
         env,
         whoami,
-        episodes,
         actions,
         OBS_DIM,
         device,
-        training_opponent,
+        training_opponents,
+        episodes_per_opponent,
         verbose,
     )
 
@@ -43,18 +41,19 @@ def train(
 class DQNAgent(BaseDQNAgent):
     @staticmethod
     def train(
-        whoami: AgentId,
-        training_env: Briscola2PEnv,
-        training_opponent: Cards2PAgent | None = None,
-        verbose_training: bool = False,
+            whoami: AgentId,
+            training_env: Briscola2PEnv,
+            training_opponents: list[Cards2PAgent],
+            episodes_per_opponent: list[int],
+            verbose_training: bool = False,
     ) -> 'DQNAgent':
         net = train(
-            training_env,
-            whoami,
-            5000,
-            40,
-            DQNAgent.device,
-            training_opponent,
-            verbose_training,
+                training_env,
+                whoami,
+                40,
+                DQNAgent.device,
+                training_opponents,
+                episodes_per_opponent,
+                verbose_training,
         )
         return DQNAgent(whoami, net)
