@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch
 
+from agents.tressette.random_agent import RandomAgent
 from environments.tressette_env import AgentId, Tressette2PEnv, Action
 from agents.agent import Cards2PAgent
 from games.deck import DECK
@@ -113,8 +114,12 @@ def train(
         episodes: int,
         actions: int,
         device: torch.device,
+        training_opponent: Cards2PAgent | None = None,
         verbose: bool = True
 ) -> CardNN:
+    if training_opponent is None:
+        training_opponent = RandomAgent('p2' if whoami == 'p1' else 'p1')
+
     online_net = CardNN(actions).to(device)
     target_net = CardNN(actions).to(device)
 
@@ -137,9 +142,7 @@ def train(
 
         while whoami in env.agents and not (env.terminations[whoami] or env.truncations[whoami]):
             if env.agent_selection != whoami:
-                m = env.observe(env.agent_selection)['action_mask']
-                legal = np.flatnonzero(m)
-                env.step(int(np.random.choice(legal)) if legal.size else None)
+                env.step(training_opponent.step(env))
                 continue
             obs = env.observe(whoami)
             state, mask = obs['observation'], obs['action_mask']
@@ -154,9 +157,7 @@ def train(
                     not done and whoami in env.agents and env.agent_selection != whoami
                     and not (env.terminations[whoami] or env.truncations[whoami])
             ):
-                m = env.observe(env.agent_selection)['action_mask']
-                legal = np.flatnonzero(m)
-                env.step(int(np.random.choice(legal)) if legal.size else None)
+                env.step(training_opponent.step(env))
                 done = env.terminations[whoami]
 
             next_obs = env.observe(whoami)
@@ -195,8 +196,21 @@ class DQNAgent(Cards2PAgent):
         self.net = trained_net
 
     @staticmethod
-    def train(whoami: AgentId, training_env: Tressette2PEnv, verbose_training: bool=False) -> 'DQNAgent':
-        net = train(training_env, whoami, 5000, 40, DQNAgent.device, verbose_training)
+    def train(
+            whoami: AgentId,
+            training_env: Tressette2PEnv,
+            training_opponent: Cards2PAgent | None,
+            verbose_training: bool=False
+    ) -> 'DQNAgent':
+        net = train(
+            training_env,
+            whoami,
+            5000,
+            40,
+            DQNAgent.device,
+            training_opponent,
+            verbose_training
+        )
         return DQNAgent(whoami, net)
 
     def step(self, env: Tressette2PEnv) -> Action | None:

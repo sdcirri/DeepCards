@@ -26,7 +26,15 @@ if MODEL_PATH.exists():
     dqn_net.eval()
 else:
     print('No saved model found, training ...')
-    dqn_net = train(env_factory(render_mode=None), 'p1', 5000, 40, DQNAgent.device, False)
+    dqn_net = train(
+        env_factory(render_mode=None),
+        'p1',
+        5000,
+        40,
+        DQNAgent.device,
+        RandomAgent('p2'),
+        False
+    )
     torch.save(dqn_net.state_dict(), MODEL_PATH)
     print(f'Saved model to {MODEL_PATH}')
 
