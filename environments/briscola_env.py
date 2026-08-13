@@ -33,14 +33,25 @@ class Briscola2PEnv(Cards2PEnv):
             'p1': BriscolaHand(shuffled_cards[:3]),
             'p2': BriscolaHand(shuffled_cards[3:6]),
         }
-        self.pile = deque(shuffled_cards[6:])
-
-        # Briscola is the next card, then put at the end of the deck
-        self.briscola = shuffled_cards.pop(0)
-        shuffled_cards.append(self.briscola)
+        # Face-up briscola sits under the deck and is drawn last.
+        self.briscola = shuffled_cards[6]
+        self.pile = deque([*shuffled_cards[7:], self.briscola])
 
         self.hands['p1'].see_card(self.briscola)
         self.hands['p2'].see_card(self.briscola)
+
+    def render(self) -> str | None:
+        output = self._render_text()
+
+        if self.render_mode == 'ansi':
+            return output
+
+        if self.render_mode == 'human':
+            from environments.piacentine_viz import render_briscola_table
+
+            render_briscola_table(self, viewpoint=self.agent_selection)
+
+        return None
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
         del agent
