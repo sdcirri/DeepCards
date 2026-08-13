@@ -1,7 +1,9 @@
 from environments.tressette_env import Tressette2PEnv, AgentId, Action
-from games.tressette import Card, CARD_INDEX
 
 from agents.tressette.agent import Tressette2PAgent
+
+from games.deck import CARD_INDEX, Card
+from games.tressette import CARD_POWER
 
 
 class GreedyAgent(Tressette2PAgent):
@@ -15,8 +17,8 @@ class GreedyAgent(Tressette2PAgent):
     def step(self, env: Tressette2PEnv) -> Action | None:
         def greedy_strategy(card: Card, lead: Card | None) -> int:
             if lead is None:
-                return card.power
-            return card.power if card.suit == lead.suit else -card.power
+                return CARD_POWER[card.number]
+            return CARD_POWER[card.number] if card.suit == lead.suit else -CARD_POWER[card.number]
 
         if env.agent_selection != self.whoami:
             return None

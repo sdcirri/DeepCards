@@ -10,7 +10,8 @@ from gymnasium import spaces
 from pettingzoo.utils import wrappers
 from pettingzoo import AECEnv
 
-from games.tressette import DECK, CARD_INDEX, Hand, Card, first_card_wins
+from games.tressette import TressetteHand, first_card_wins, card_point_thirds
+from games.deck import DECK, Card, CARD_INDEX
 
 
 AgentId: TypeAlias = Literal['p1', 'p2']
@@ -116,8 +117,8 @@ class Tressette2PEnv(AECEnv[AgentId, Observation, Action]):
         ]
 
         self.hands = {
-            'p1': Hand(shuffled_cards[:10]),
-            'p2': Hand(shuffled_cards[10:20]),
+            'p1': TressetteHand(shuffled_cards[:10]),
+            'p2': TressetteHand(shuffled_cards[10:20]),
         }
         self.pile = deque(shuffled_cards[20:])
         self.lead_play = None
@@ -221,7 +222,7 @@ class Tressette2PEnv(AECEnv[AgentId, Observation, Action]):
             winner = follower
             loser = leader
 
-        trick_points = leader_card.point_thirds + follower_card.point_thirds
+        trick_points = card_point_thirds(follower_card) + card_point_thirds(leader_card)
 
         self.rewards[winner] = float(trick_points)
         self.rewards[loser] = float(-trick_points)

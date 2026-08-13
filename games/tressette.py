@@ -1,15 +1,8 @@
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+
+from .deck import Suit, Card, Hand
 
 
-class Suit(Enum):
-    DENARI = 'Denari'
-    BASTONI = 'Bastoni'
-    COPPE = 'Coppe'
-    SPADE = 'Spade'
-
-
-CARD_NUMBERS = tuple(range(1, 11))
 CARD_POWER_ORDER = (3, 2, 1, 10, 9, 8, 7, 6, 5, 4)
 CARD_POWER = {
     number: len(CARD_POWER_ORDER) - position
@@ -17,37 +10,8 @@ CARD_POWER = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class Card:
-    suit: Suit
-    number: int
-
-    @property
-    def point_thirds(self) -> int:
-        if self.number == 1:
-            return 3
-        elif self.number in (2, 3, 8, 9, 10):
-            return 1
-        return 0
-
-    @property
-    def power(self) -> int:
-        return CARD_POWER[self.number]
-
-    def __str__(self) -> str:
-        return f'Card [{self.number} of {self.suit.value}]'
-
-
 @dataclass(slots=True)
-class Hand:
-    cards: list[Card]
-    seen: set[Card] = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.cards = list(self.cards)
-        if len(self.cards) != len(set(self.cards)):
-            raise ValueError('A hand cannot contain duplicate cards')
-        self.seen = set(self.cards)
+class TressetteHand(Hand):
 
     def get_accusi_points(self) -> int:
         napoli = {s: 0 for s in Suit}
@@ -69,34 +33,13 @@ class Hand:
             return cards
         return same_suit
 
-    def see_card(self, card: Card) -> None:
-        """
-        For when adversary either plays a trick
-        or takes a card
-        """
-        self.seen.add(card)
 
-    def play_card(self, card: Card) -> None:
-        self.cards.remove(card)
-
-    def take_card(self, card: Card) -> None:
-        self.cards.append(card)
-        self.seen.add(card)
-
-    def __len__(self) -> int:
-        return len(self.cards)
-
-
-DECK = [
-    Card(s, n)
-    for s in Suit
-    for n in range(1, 11)
-]
-
-CARD_INDEX: dict[Card, int] = {
-    card: index
-    for index, card in enumerate(DECK)
-}
+def card_point_thirds(card: Card) -> int:
+    if card.number == 1:
+        return 3
+    elif card.number in (2, 3, 8, 9, 10):
+        return 1
+    return 0
 
 
 def first_card_wins(card1: Card, card2: Card) -> bool:
@@ -107,4 +50,4 @@ def first_card_wins(card1: Card, card2: Card) -> bool:
     if card1.suit != card2.suit:
         return True
 
-    return card1.power > card2.power
+    return CARD_POWER[card1.number] > CARD_POWER[card2.number]

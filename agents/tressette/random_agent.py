@@ -1,7 +1,7 @@
 import numpy as np
 
 from environments.tressette_env import Tressette2PEnv, AgentId, Action
-from games.tressette import DECK
+from games.deck import DECK
 
 from agents.tressette.agent import Tressette2PAgent
 

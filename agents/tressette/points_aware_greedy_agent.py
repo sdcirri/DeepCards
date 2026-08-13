@@ -1,7 +1,9 @@
 from environments.tressette_env import Tressette2PEnv, AgentId, Action
-from games.tressette import CARD_INDEX
 
 from agents.tressette.agent import Tressette2PAgent
+
+from games.tressette import CARD_POWER, card_point_thirds
+from games.deck import CARD_INDEX
 
 
 class PointsAwareGreedyAgent(Tressette2PAgent):
@@ -22,18 +24,29 @@ class PointsAwareGreedyAgent(Tressette2PAgent):
 
         if lead is None:
             # Leading: win cheaply with 0-point cards, else lead lowest value
-            zero_point = [c for c in legal if c.point_thirds == 0]
+            zero_point = [c for c in legal if card_point_thirds(c) == 0]
             if zero_point:
-                card = max(zero_point, key=lambda c: c.power)
+                card = max(zero_point, key=lambda c: CARD_POWER[c.number])
             else:
-                card = min(legal, key=lambda c: (c.point_thirds, c.power))
+                card = min(
+                    legal,
+                    key=lambda c: (card_point_thirds(c), CARD_POWER[c.number])
+                )
         else:
-            winners = [c for c in legal if c.suit == lead.suit and c.power > lead.power]
+            winners = [
+                c for c in legal
+                if c.suit == lead.suit and CARD_POWER[c.number] > CARD_POWER[lead.number]
+            ]
             if winners:
                 # Cheapest card that still wins the trick
-                card = min(winners, key=lambda c: (c.power, c.point_thirds))
+                card = min(
+                    winners,
+                    key=lambda c: (CARD_POWER[c.number], card_point_thirds(c))
+                )
             else:
                 # Losing: shed lowest-value card (opponent already winning)
-                card = min(legal, key=lambda c: (c.point_thirds, c.power))
+                card = min(
+                    legal, key=lambda c: (card_point_thirds(c), CARD_POWER[c.number])
+                )
 
         return CARD_INDEX[card]

@@ -11,7 +11,7 @@ import torch
 
 from environments.tressette_env import AgentId, Tressette2PEnv, Action
 from agents.tressette.agent import Tressette2PAgent
-from games.tressette import DECK
+from games.deck import DECK
 
 
 class CardNN(nn.Module):
