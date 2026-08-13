@@ -1,6 +1,6 @@
 import numpy as np
 
-from environments.tressette_env import Tressette2PEnv, AgentId, Action
+from environments.briscola_env import Briscola2PEnv, AgentId, Action
 from games.deck import DECK
 
 from agents.agent import Cards2PAgent
@@ -13,7 +13,7 @@ class RandomAgent(Cards2PAgent):
     def __init__(self, whoami: AgentId) -> None:
         super().__init__(whoami, 'Random Agent')
 
-    def step(self, env: Tressette2PEnv) -> Action | None:
+    def step(self, env: Briscola2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
             return None
 

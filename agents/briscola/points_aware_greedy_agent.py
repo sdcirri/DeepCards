@@ -1,8 +1,8 @@
-from environments.tressette_env import Tressette2PEnv, AgentId, Action
+from environments.briscola_env import Briscola2PEnv, AgentId, Action
 
 from agents.agent import Cards2PAgent
 
-from games.tressette import CARD_POWER, card_point_thirds
+from games.briscola import CARD_POWER, card_points
 from games.deck import CARD_INDEX
 
 
@@ -15,7 +15,7 @@ class PointsAwareGreedyAgent(Cards2PAgent):
     def __init__(self, whoami: AgentId) -> None:
         super().__init__(whoami, 'Points-Aware Greedy Agent')
 
-    def step(self, env: Tressette2PEnv) -> Action | None:
+    def step(self, env: Briscola2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
             return None
 
@@ -24,13 +24,13 @@ class PointsAwareGreedyAgent(Cards2PAgent):
 
         if lead is None:
             # Leading: win cheaply with 0-point cards, else lead lowest value
-            zero_point = [c for c in legal if card_point_thirds(c) == 0]
+            zero_point = [c for c in legal if card_points(c) == 0]
             if zero_point:
                 card = max(zero_point, key=lambda c: CARD_POWER[c.number])
             else:
                 card = min(
                     legal,
-                    key=lambda c: (card_point_thirds(c), CARD_POWER[c.number])
+                    key=lambda c: (card_points(c), CARD_POWER[c.number])
                 )
         else:
             winners = [
@@ -41,12 +41,12 @@ class PointsAwareGreedyAgent(Cards2PAgent):
                 # Cheapest card that still wins the trick
                 card = min(
                     winners,
-                    key=lambda c: (CARD_POWER[c.number], card_point_thirds(c))
+                    key=lambda c: (CARD_POWER[c.number], card_points(c))
                 )
             else:
                 # Losing: shed lowest-value card (opponent already winning)
                 card = min(
-                    legal, key=lambda c: (card_point_thirds(c), CARD_POWER[c.number])
+                    legal, key=lambda c: (card_points(c), CARD_POWER[c.number])
                 )
 
         return CARD_INDEX[card]

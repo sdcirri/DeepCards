@@ -1,9 +1,9 @@
-from environments.tressette_env import Tressette2PEnv, AgentId, Action
+from environments.briscola_env import Briscola2PEnv, AgentId, Action
 
 from agents.agent import Cards2PAgent
 
 from games.deck import CARD_INDEX, Card
-from games.tressette import CARD_POWER
+from games.briscola import CARD_POWER
 
 
 class GreedyAgent(Cards2PAgent):
@@ -14,7 +14,7 @@ class GreedyAgent(Cards2PAgent):
     def __init__(self, whoami: AgentId) -> None:
         super().__init__(whoami, 'Greedy Agent')
 
-    def step(self, env: Tressette2PEnv) -> Action | None:
+    def step(self, env: Briscola2PEnv) -> Action | None:
         def greedy_strategy(card: Card, lead: Card | None) -> int:
             if lead is None:
                 return CARD_POWER[card.number]

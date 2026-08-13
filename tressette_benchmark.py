@@ -10,11 +10,12 @@ from agents.tressette.dqn_agent import DQNAgent, train, CardNN
 from agents.tressette.random_agent import RandomAgent
 from agents.tressette.greedy_agent import GreedyAgent
 
-from agents.tressette.agent import challenge, Tressette2PAgent
+from agents.agent import Cards2PAgent
+from agents.tressette.agent import challenge
 
 
-AgentFactory = Callable[[AgentId], Tressette2PAgent]
-MODEL_PATH = Path('dqn_net.pt')
+AgentFactory = Callable[[AgentId], Cards2PAgent]
+MODEL_PATH = Path('tressette_dqn_net.pt')
 
 print('Initializing agents ...')
 

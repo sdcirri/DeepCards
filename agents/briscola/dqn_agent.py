@@ -9,16 +9,17 @@ import torch.optim as optim
 import torch.nn as nn
 import torch
 
-from environments.tressette_env import AgentId, Tressette2PEnv, Action
-from agents.agent import Cards2PAgent
+from environments.briscola_env import AgentId, Briscola2PEnv, Action
 from games.deck import DECK
+
+from agents.agent import Cards2PAgent
 
 
 class CardNN(nn.Module):
     def __init__(self, actions: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-                nn.Linear(120, 256),
+                nn.Linear(160, 256),
                 nn.LeakyReLU(),
                 nn.Linear(256, 256),
                 nn.LeakyReLU(),
@@ -108,7 +109,7 @@ def train_step(
 
 
 def train(
-        env: Tressette2PEnv,
+        env: Briscola2PEnv,
         whoami: AgentId,
         episodes: int,
         actions: int,
@@ -195,11 +196,11 @@ class DQNAgent(Cards2PAgent):
         self.net = trained_net
 
     @staticmethod
-    def train(whoami: AgentId, training_env: Tressette2PEnv, verbose_training: bool=False) -> 'DQNAgent':
+    def train(whoami: AgentId, training_env: Briscola2PEnv, verbose_training: bool=False) -> 'DQNAgent':
         net = train(training_env, whoami, 5000, 40, DQNAgent.device, verbose_training)
         return DQNAgent(whoami, net)
 
-    def step(self, env: Tressette2PEnv) -> Action | None:
+    def step(self, env: Briscola2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
             return None
 

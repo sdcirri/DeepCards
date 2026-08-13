@@ -4,7 +4,8 @@ import numpy as np
 from pettingzoo.test import api_test, seed_test
 
 from environments.tressette_env import env
-from games.tressette import DECK, Card, Suit, first_card_wins
+from games.deck import DECK, Card, Suit
+from games.tressette import first_card_wins
 
 
 def test_deck() -> None:
