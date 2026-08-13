@@ -45,6 +45,8 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
     ILLEGAL_PLAY_PENALTY = -1000.0
     OBSERVATION_PLANES: int
+    # Max points (or thirds) in a single trick; used to scale RL rewards into ~[-1, 1].
+    MAX_HAND_POINTS: int
 
     def __init__(self, render_mode: str | None = None) -> None:
         super().__init__()
@@ -54,6 +56,9 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
         if not isinstance(self.OBSERVATION_PLANES, int) or self.OBSERVATION_PLANES < 3:
             raise ValueError('OBSERVATION_PLANES must be an int >= 3')
+
+        if not isinstance(self.MAX_HAND_POINTS, int) or self.MAX_HAND_POINTS <= 0:
+            raise ValueError('MAX_HAND_POINTS must be a positive int')
 
         self.render_mode = render_mode
         self.possible_agents: list[AgentId] = ['p1', 'p2']
@@ -227,9 +232,12 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
         trick_points = self._trick_points(leader_card, follower_card)
 
-        self.rewards[winner] = float(trick_points)
-        self.rewards[loser] = float(-trick_points)
+        # scores: real points/thirds for UI and challenge feedback
+        # rewards: scaled for RL (points / max per hand)
         self.scores[winner] += trick_points
+        scaled = float(trick_points) / self.MAX_HAND_POINTS
+        self.rewards[winner] = scaled
+        self.rewards[loser] = -scaled
         self.lead_play = None
 
         self._draw_cards(winner=winner, loser=loser)

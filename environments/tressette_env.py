@@ -21,6 +21,7 @@ class Tressette2PEnv(Cards2PEnv):
         'is_parallelizable': False,
     }
     OBSERVATION_PLANES = 3
+    MAX_HAND_POINTS = 6  # two aces = 6 thirds; scales rewards to ~[-1, 1]
 
     def _deal(self, shuffled_cards: list[Card]) -> None:
         self.hands = {
@@ -67,8 +68,10 @@ class Tressette2PEnv(Cards2PEnv):
         self.hands[winner].see_card(loser_card)
 
     def _on_game_finished(self, winner: AgentId) -> None:
-        # Extra point (three thirds) for last win
-        self.rewards[winner] += 3
+        # Extra point (three thirds) for last trick win
+        last_trick_thirds = 3
+        self.scores[winner] += last_trick_thirds
+        self.rewards[winner] += last_trick_thirds / self.MAX_HAND_POINTS
 
     def _score_info(self, agent: AgentId, opponent: AgentId) -> dict[str, Any]:
         return {

@@ -23,6 +23,7 @@ class Briscola2PEnv(Cards2PEnv):
         'is_parallelizable': False,
     }
     OBSERVATION_PLANES = 4
+    MAX_HAND_POINTS = 22  # ace (11) + 3 (10), plus slack; scales rewards to ~[-1, 1]
 
     def __init__(self, render_mode: str | None = None) -> None:
         super().__init__(render_mode=render_mode)
