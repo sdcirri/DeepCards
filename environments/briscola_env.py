@@ -49,9 +49,17 @@ class Briscola2PEnv(Cards2PEnv):
         if self.render_mode == 'human':
             from environments.piacentine_viz import render_briscola_table
 
-            render_briscola_table(self, viewpoint=self.agent_selection)
+            # Fixed camera: p1 at the bottom so plays come from the correct hand.
+            render_briscola_table(self, viewpoint='p1')
 
         return None
+
+    def close(self) -> None:
+        if self.render_mode == 'human':
+            from environments.piacentine_viz import close_live_window
+
+            close_live_window()
+        return super().close()
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
         del agent

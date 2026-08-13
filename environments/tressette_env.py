@@ -29,6 +29,27 @@ class Tressette2PEnv(Cards2PEnv):
         }
         self.pile = deque(shuffled_cards[20:])
 
+    def render(self) -> str | None:
+        output = self._render_text()
+
+        if self.render_mode == 'ansi':
+            return output
+
+        if self.render_mode == 'human':
+            from environments.piacentine_viz import render_tressette_table
+
+            # Fixed camera: p1 at the bottom so plays come from the correct hand.
+            render_tressette_table(self, viewpoint='p1')
+
+        return None
+
+    def close(self) -> None:
+        if self.render_mode == 'human':
+            from environments.piacentine_viz import close_live_window
+
+            close_live_window()
+        return super().close()
+
     def _lead_wins(self, leader_card: Card, follower_card: Card) -> bool:
         return first_card_wins(leader_card, follower_card)
 

@@ -36,10 +36,18 @@ def run_challenge(
         agent1: Cards2PAgent,
         agent2: Cards2PAgent,
         episodes: int,
-        one_episode: Callable[[Cards2PAgent, Cards2PAgent], tuple[int, int]],
+        one_episode: Callable[[Cards2PAgent, Cards2PAgent, str | None], tuple[int, int]],
+        render_mode: str | None
 ) -> tuple[int, int]:
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        results = executor.map(one_episode, [agent1] * episodes, [agent2] * episodes)
+    # Render disables parallelism
+    pool_size = 1 if render_mode is not None else os.cpu_count()
+    with ProcessPoolExecutor(max_workers=pool_size) as executor:
+        results = executor.map(
+            one_episode,
+            [agent1] * episodes,
+            [agent2] * episodes,
+            [render_mode] * episodes
+        )
 
     points_1, points_2 = 0, 0
     for result in results:

@@ -1,24 +1,23 @@
 from typing import Callable
 from pathlib import Path
+from sys import argv
 
 import torch
-
-from environments.tressette_env import env as env_factory, AgentId
 
 from agents.tressette.points_aware_greedy_agent import PointsAwareGreedyAgent
 from agents.tressette.dqn_agent import DQNAgent, train, CardNN
 from agents.tressette.random_agent import RandomAgent
 from agents.tressette.greedy_agent import GreedyAgent
 
-from agents.agent import Cards2PAgent
+from environments.tressette_env import env as env_factory, AgentId
 from agents.tressette.agent import challenge
+from agents.agent import Cards2PAgent
 
 
 AgentFactory = Callable[[AgentId], Cards2PAgent]
 MODEL_PATH = Path('tressette_dqn_net.pt')
 
 print('Initializing agents ...')
-
 
 if MODEL_PATH.exists():
     print(f'Loading model from {MODEL_PATH}')
@@ -40,12 +39,18 @@ agent_factories: list[tuple[str, AgentFactory]] = [
 ]
 
 EPISODES = 10_000
+if len(argv) > 1:
+    EPISODES = int(argv[1])
+
+render_mode = None
+if len(argv) > 2:
+    render_mode = argv[2]
 
 for name1, make1 in agent_factories:
     for name2, make2 in agent_factories:
         agent1, agent2 = make1('p1'), make2('p2')
         print(f'Starting match: {agent1.name} [p1] vs {agent2.name} [p2], {EPISODES} episodes')
-        score1, score2 = challenge(agent1, agent2, EPISODES)
+        score1, score2 = challenge(agent1, agent2, EPISODES, render_mode)
 
         print(f'Agent 1: {agent1.name}: avg score: {score1 / EPISODES:.4f}')
         print(f'Agent 2: {agent2.name}: avg score: {score2 / EPISODES:.4f}')
