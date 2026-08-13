@@ -34,7 +34,11 @@ class Briscola2PEnv(Cards2PEnv):
             'p2': BriscolaHand(shuffled_cards[3:6]),
         }
         self.pile = deque(shuffled_cards[6:])
-        self.briscola = shuffled_cards[-1]
+
+        # Briscola is the next card, then put at the end of the deck
+        self.briscola = shuffled_cards.pop(0)
+        shuffled_cards.append(self.briscola)
+
         self.hands['p1'].see_card(self.briscola)
         self.hands['p2'].see_card(self.briscola)
 
