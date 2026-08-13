@@ -150,15 +150,17 @@ def train(
 
             action = choose_action(state, mask, online_net, epsilon, device)
             env.step(action)
-            reward = env.rewards[whoami]
+            # Include rewards from our step and any intervening opponent steps
+            # (trick points are often assigned when the opponent follows).
+            reward = float(env.rewards[whoami])
             done = env.terminations[whoami]
 
-            # Opponent plays until it's our turn again or the game ends.
             while (
                     not done and whoami in env.agents and env.agent_selection != whoami
                     and not (env.terminations[whoami] or env.truncations[whoami])
             ):
                 env.step(training_opponent.step(env))
+                reward += float(env.rewards[whoami])
                 done = env.terminations[whoami]
 
             next_obs = env.observe(whoami)
@@ -182,8 +184,20 @@ def train(
 
     if verbose:
         print(f'Training done, avg loss: {sum(losses) / len(losses)}')
-        plt.plot(losses)
-        plt.show()
+        window = min(100, max(1, len(losses) // 10))
+        if losses:
+            kernel = np.ones(window, dtype=np.float64) / window
+            smooth = np.convolve(losses, kernel, mode='valid')
+            plt.plot(losses, alpha=0.25, label='batch loss')
+            plt.plot(
+                range(window - 1, window - 1 + len(smooth)),
+                smooth,
+                label=f'moving avg (w={window})',
+            )
+            plt.xlabel('train step')
+            plt.ylabel('loss')
+            plt.legend()
+            plt.show()
 
     return online_net
 
