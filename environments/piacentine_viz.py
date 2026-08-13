@@ -1,8 +1,8 @@
 """
 Pygame table renderer using Carte Piacentine assets.
 
-Human rendering keeps a single window and redraws it each step,
-with a short flight animation when a card is played to the table.
+Supports a single table or a grid of up to MAX_PARALLEL_EPISODES panes
+for watching many episodes of one challenge at once.
 
 Assets from: https://deerlike.itch.io/piacentine-cards
 """
@@ -10,6 +10,7 @@ Assets from: https://deerlike.itch.io/piacentine-cards
 from typing import Any, Callable, Literal
 from dataclasses import dataclass
 from pathlib import Path
+import math
 
 import pygame
 
@@ -22,11 +23,13 @@ from environments.tressette_env import Tressette2PEnv
 ASSETS_DIR = Path(__file__).resolve().parent.parent / 'assets' / 'CartePiacentineITA'
 CARD_BACK = ASSETS_DIR / '_Dorso.png'
 TABLE_COLOR = (27, 107, 58)
+BORDER_COLOR = (12, 60, 32)
 WHITE = (255, 255, 255)
 STEP_DELAY_MS = 450
 ANIM_MS = 280
 ANIM_HOLD_MS = 180
 OPPONENT_CARD_ALPHA = 140
+MAX_PARALLEL_EPISODES = 100
 
 GameKind = Literal['briscola', 'tressette']
 
@@ -34,9 +37,17 @@ _LIVE: dict[str, Any] = {
     'screen': None,
     'kind': None,
     'clock': None,
-    'font': None,
+    'font_cache': {},
     'card_cache': {},
-    'prev': None,
+    'n_slots': 1,
+    'cols': 1,
+    'rows': 1,
+    'pane_size': (900, 700),
+    'scale': 1.0,
+    'panes': {},  # slot -> Surface
+    'prev': {},  # slot -> snapshot
+    'title': '',
+    'parallel_envs': [],  # raw envs for resize redraw
 }
 
 
@@ -60,16 +71,24 @@ def _ensure_pygame() -> None:
         pygame.font.init()
 
 
-def _window_size(kind: GameKind) -> tuple[int, int]:
+def _base_pane_size(kind: GameKind) -> tuple[int, int]:
     return (1100, 700) if kind == 'tressette' else (900, 700)
 
 
-def _card_size(hand_count: int) -> tuple[int, int]:
+def _grid_dims(n: int) -> tuple[int, int]:
+    cols = max(1, math.ceil(math.sqrt(n)))
+    rows = max(1, math.ceil(n / cols))
+    return cols, rows
+
+
+def _card_size(hand_count: int, scale: float = 1.0) -> tuple[int, int]:
     if hand_count <= 3:
-        return 90, 160
-    if hand_count <= 6:
-        return 72, 128
-    return 58, 103
+        base = (90, 160)
+    elif hand_count <= 6:
+        base = (72, 128)
+    else:
+        base = (58, 103)
+    return max(12, int(base[0] * scale)), max(20, int(base[1] * scale))
 
 
 def _load_card_surface(path: Path, size: tuple[int, int]) -> pygame.Surface:
@@ -93,57 +112,95 @@ def _fan_xs(count: int, center: int, gap: int) -> list[int]:
 
 
 def _blit_card(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     path: Path,
     center: tuple[int, int],
     size: tuple[int, int],
     *,
     alpha: int = 255,
 ) -> None:
-    surface = _load_card_surface(path, size)
+    card = _load_card_surface(path, size)
     if alpha < 255:
-        surface = surface.copy()
-        surface.fill((255, 255, 255, alpha), special_flags=pygame.BLEND_RGBA_MULT)
-    rect = surface.get_rect(center=center)
-    screen.blit(surface, rect)
+        card = card.copy()
+        card.fill((255, 255, 255, alpha), special_flags=pygame.BLEND_RGBA_MULT)
+    rect = card.get_rect(center=center)
+    surface.blit(card, rect)
 
 
 def _font(size: int = 22) -> pygame.font.Font:
-    font = _LIVE['font']
-    if font is None or font.get_height() != size + 4:
+    size = max(9, size)
+    cache = _LIVE['font_cache']
+    font = cache.get(size)
+    if font is None:
         font = pygame.font.SysFont('dejavusans', size, bold=True)
-        _LIVE['font'] = font
+        cache[size] = font
     return font
 
 
-def _draw_label(screen: pygame.Surface, text: str, center: tuple[int, int], *, size: int = 22) -> None:
-    surface = _font(size).render(text, True, WHITE)
-    rect = surface.get_rect(center=center)
-    screen.blit(surface, rect)
+def _label_size(base: int) -> int:
+    return max(9, int(base * _LIVE['scale']))
+
+
+def _draw_label(
+    surface: pygame.Surface,
+    text: str,
+    center: tuple[int, int],
+    *,
+    size: int = 22,
+) -> None:
+    rendered = _font(size).render(text, True, WHITE)
+    rect = rendered.get_rect(center=center)
+    surface.blit(rendered, rect)
 
 
 def _draw_label_left(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     text: str,
     topleft: tuple[int, int],
     *,
     size: int = 22,
 ) -> None:
-    surface = _font(size).render(text, True, WHITE)
-    screen.blit(surface, topleft)
+    rendered = _font(size).render(text, True, WHITE)
+    surface.blit(rendered, topleft)
+
+
+def _display_budget() -> tuple[int, int]:
+    try:
+        info = pygame.display.Info()
+        current_w = info.current_w or 1280
+        current_h = info.current_h or 720
+    except pygame.error:
+        current_w, current_h = 1280, 720
+    # Leave room for desktop panels / window chrome.
+    max_w = max(640, int(current_w * 0.92))
+    max_h = max(480, int(current_h * 0.88))
+    return max_w, max_h
 
 
 def _pump_events() -> bool:
-    """Process window events. Returns False if the window was closed."""
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             close_live_window()
             return False
+        if event.type == pygame.VIDEORESIZE and _LIVE['screen'] is not None:
+            _relayout_window(event.w, event.h)
+            _redraw_parallel_envs_static()
     return _LIVE['screen'] is not None
 
 
-def _wait_step(delay_ms: int = STEP_DELAY_MS) -> None:
-    """Pause between plays while keeping the window responsive."""
+def _step_delay_ms() -> int:
+    if STEP_DELAY_MS <= 0:
+        return 0
+    n = _LIVE['n_slots']
+    if n <= 1:
+        return STEP_DELAY_MS
+    # Keep the grid watchable as N grows.
+    return max(40, STEP_DELAY_MS // max(1, n // 2))
+
+
+def _wait_step(delay_ms: int | None = None) -> None:
+    if delay_ms is None:
+        delay_ms = _step_delay_ms()
     if delay_ms <= 0 or _LIVE['screen'] is None:
         return
 
@@ -159,88 +216,218 @@ def _wait_step(delay_ms: int = STEP_DELAY_MS) -> None:
 
 
 def close_live_window() -> None:
-    screen = _LIVE['screen']
-    if screen is not None:
+    if _LIVE['screen'] is not None:
         pygame.display.quit()
     _LIVE['screen'] = None
     _LIVE['kind'] = None
     _LIVE['clock'] = None
-    _LIVE['font'] = None
+    _LIVE['font_cache'] = {}
     _LIVE['card_cache'] = {}
-    _LIVE['prev'] = None
+    _LIVE['n_slots'] = 1
+    _LIVE['cols'] = 1
+    _LIVE['rows'] = 1
+    _LIVE['pane_size'] = (900, 700)
+    _LIVE['scale'] = 1.0
+    _LIVE['panes'] = {}
+    _LIVE['prev'] = {}
+    _LIVE['title'] = ''
+    _LIVE['parallel_envs'] = []
 
 
-def _get_screen(kind: GameKind) -> pygame.Surface:
+def _compute_layout(
+    kind: GameKind,
+    n_slots: int,
+    window_w: int,
+    window_h: int,
+) -> tuple[int, int, int, int, float]:
+    cols, rows = _grid_dims(n_slots)
+    base_w, base_h = _base_pane_size(kind)
+    pane_w = max(120, window_w // cols)
+    pane_h = max(100, window_h // rows)
+    scale = min(pane_w / base_w, pane_h / base_h)
+    return cols, rows, pane_w, pane_h, scale
+
+
+def _rebuild_panes(pane_w: int, pane_h: int, n_slots: int) -> dict[int, pygame.Surface]:
+    panes = {
+        slot: pygame.Surface((pane_w, pane_h)).convert()
+        for slot in range(n_slots)
+    }
+    for pane in panes.values():
+        pane.fill(TABLE_COLOR)
+    return panes
+
+
+def _relayout_window(window_w: int, window_h: int) -> None:
+    kind = _LIVE['kind']
+    n_slots = _LIVE['n_slots']
+    if kind is None or _LIVE['screen'] is None:
+        return
+
+    window_w = max(320, window_w)
+    window_h = max(240, window_h)
+    cols, rows, pane_w, pane_h, scale = _compute_layout(kind, n_slots, window_w, window_h)
+    screen = pygame.display.set_mode((window_w, window_h), pygame.RESIZABLE)
+    _LIVE.update(
+        {
+            'screen': screen,
+            'cols': cols,
+            'rows': rows,
+            'pane_size': (pane_w, pane_h),
+            'scale': scale,
+            'panes': _rebuild_panes(pane_w, pane_h, n_slots),
+            'card_cache': {},
+            'font_cache': {},
+        }
+    )
+
+
+def begin_parallel_session(
+    kind: GameKind,
+    n_slots: int,
+    *,
+    title: str = '',
+) -> None:
+    """Open (or recreate) a resizable window split into n_slots episode panes."""
+    if n_slots < 1:
+        raise ValueError('n_slots must be >= 1')
+    if n_slots > MAX_PARALLEL_EPISODES:
+        raise ValueError(f'n_slots must be <= {MAX_PARALLEL_EPISODES}')
+
+    close_live_window()
     _ensure_pygame()
+
+    cols, rows = _grid_dims(n_slots)
+    base_w, base_h = _base_pane_size(kind)
+    max_w, max_h = _display_budget()
+    scale = min(max_w / (cols * base_w), max_h / (rows * base_h), 1.0)
+    pane_w = max(120, int(base_w * scale))
+    pane_h = max(100, int(base_h * scale))
+    window_w = pane_w * cols
+    window_h = pane_h * rows
+
+    screen = pygame.display.set_mode((window_w, window_h), pygame.RESIZABLE)
+    caption = title or f'{kind.title()} — Carte Piacentine'
+    if n_slots > 1:
+        caption = f'{caption}  [{n_slots} episodes]'
+    pygame.display.set_caption(caption)
+
+    _LIVE.update(
+        {
+            'screen': screen,
+            'kind': kind,
+            'clock': pygame.time.Clock(),
+            'font_cache': {},
+            'card_cache': {},
+            'n_slots': n_slots,
+            'cols': cols,
+            'rows': rows,
+            'pane_size': (pane_w, pane_h),
+            'scale': scale,
+            'panes': _rebuild_panes(pane_w, pane_h, n_slots),
+            'prev': {},
+            'title': caption,
+            'parallel_envs': [],
+        }
+    )
+    _present()
+
+
+def end_parallel_session() -> None:
+    close_live_window()
+
+
+def set_parallel_envs(envs: list[Any]) -> None:
+    """Raw envs used to redraw panes after a window resize."""
+    _LIVE['parallel_envs'] = list(envs)
+
+
+def _pane_origin(slot: int) -> tuple[int, int]:
+    cols = _LIVE['cols']
+    pane_w, pane_h = _LIVE['pane_size']
+    return (slot % cols) * pane_w, (slot // cols) * pane_h
+
+
+def _present() -> None:
     screen = _LIVE['screen']
-    stale = screen is None or _LIVE['kind'] != kind or not pygame.display.get_init()
-    if stale:
-        close_live_window()
-        _ensure_pygame()
-        width, height = _window_size(kind)
-        screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption(f'{kind.title()} — Carte Piacentine')
-        _LIVE['screen'] = screen
-        _LIVE['kind'] = kind
-        _LIVE['clock'] = pygame.time.Clock()
-        _LIVE['font'] = pygame.font.SysFont('dejavusans', 22, bold=True)
-        _LIVE['card_cache'] = {}
-        _LIVE['prev'] = None
-    return screen
+    if screen is None:
+        return
+    screen.fill(BORDER_COLOR)
+    for slot, pane in _LIVE['panes'].items():
+        origin = _pane_origin(slot)
+        screen.blit(pane, origin)
+        rect = pygame.Rect(origin, _LIVE['pane_size'])
+        pygame.draw.rect(screen, BORDER_COLOR, rect, width=max(1, int(2 * _LIVE['scale'])))
+    pygame.display.flip()
+
+
+def _get_pane(kind: GameKind, slot: int) -> pygame.Surface:
+    if (
+        _LIVE['screen'] is None
+        or _LIVE['kind'] != kind
+        or not pygame.display.get_init()
+        or slot not in _LIVE['panes']
+    ):
+        # Single-game fallback session.
+        begin_parallel_session(kind, max(slot + 1, 1))
+    return _LIVE['panes'][slot]
 
 
 def _hand_gap(card_width: int, count: int) -> int:
+    scale = _LIVE['scale']
     if count <= 3:
-        return card_width + 18
+        return card_width + max(4, int(18 * scale))
     if count <= 6:
-        return card_width + 10
-    return max(card_width - 8, 42)
+        return card_width + max(3, int(10 * scale))
+    return max(card_width - max(4, int(8 * scale)), max(16, int(42 * scale)))
 
 
-def _hand_y(screen: pygame.Surface, *, bottom: bool) -> int:
-    height = screen.get_height()
+def _hand_y(surface: pygame.Surface, *, bottom: bool) -> int:
+    height = surface.get_height()
     return int(height * 0.84) if bottom else int(height * 0.14)
 
 
 def _trick_pos(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     agent: AgentId,
     *,
     viewpoint: AgentId,
 ) -> tuple[int, int]:
-    width = screen.get_width()
-    height = screen.get_height()
+    width = surface.get_width()
+    height = surface.get_height()
     center_x = int(width * 0.62)
-    x = center_x - 40 if agent == viewpoint else center_x + 40
+    offset = max(12, int(40 * _LIVE['scale']))
+    x = center_x - offset if agent == viewpoint else center_x + offset
     return x, int(height * 0.48)
 
 
-def _deck_pos(screen: pygame.Surface, *, kind: GameKind) -> tuple[int, int]:
-    width = screen.get_width()
-    height = screen.get_height()
+def _deck_pos(surface: pygame.Surface, *, kind: GameKind) -> tuple[int, int]:
+    width = surface.get_width()
+    height = surface.get_height()
     if kind == 'briscola':
         return int(width * 0.33), int(height * 0.48)
     return int(width * 0.31), int(height * 0.48)
 
 
 def _hand_slot_pos(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
     hand_count: int,
     index: int,
     is_viewer: bool,
 ) -> tuple[int, int]:
+    scale = _LIVE['scale']
     count = max(hand_count, 1)
-    card_w, _ = _card_size(count)
+    card_w, _ = _card_size(count, scale)
     gap = _hand_gap(card_w, count)
-    xs = _fan_xs(hand_count, center=screen.get_width() // 2, gap=gap)
+    xs = _fan_xs(hand_count, center=surface.get_width() // 2, gap=gap)
     if not xs:
-        return screen.get_width() // 2, _hand_y(screen, bottom=is_viewer)
-    return xs[min(max(index, 0), len(xs) - 1)], _hand_y(screen, bottom=is_viewer)
+        return surface.get_width() // 2, _hand_y(surface, bottom=is_viewer)
+    return xs[min(max(index, 0), len(xs) - 1)], _hand_y(surface, bottom=is_viewer)
 
 
 def _hand_card_pos(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
     hand: list[Card],
     card: Card,
@@ -251,7 +438,7 @@ def _hand_card_pos(
     except ValueError:
         index = len(hand)
     return _hand_slot_pos(
-        screen,
+        surface,
         hand_count=max(len(hand), index + 1),
         index=index,
         is_viewer=is_viewer,
@@ -259,14 +446,14 @@ def _hand_card_pos(
 
 
 def _draw_hands(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
     viewer_hand: list[Card],
     opponent_hand: list[Card],
     card_size: tuple[int, int],
     gap: int,
 ) -> None:
-    width = screen.get_width()
+    width = surface.get_width()
 
     for x, card in zip(
         _fan_xs(len(opponent_hand), center=width // 2, gap=gap),
@@ -274,9 +461,9 @@ def _draw_hands(
         strict=True,
     ):
         _blit_card(
-            screen,
+            surface,
             card_image_path(card),
-            (x, _hand_y(screen, bottom=False)),
+            (x, _hand_y(surface, bottom=False)),
             card_size,
             alpha=OPPONENT_CARD_ALPHA,
         )
@@ -286,11 +473,16 @@ def _draw_hands(
         viewer_hand,
         strict=True,
     ):
-        _blit_card(screen, card_image_path(card), (x, _hand_y(screen, bottom=True)), card_size)
+        _blit_card(
+            surface,
+            card_image_path(card),
+            (x, _hand_y(surface, bottom=True)),
+            card_size,
+        )
 
 
 def _draw_trick_cards(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     cards: list[tuple[AgentId, Card]],
     *,
     viewpoint: AgentId,
@@ -299,11 +491,21 @@ def _draw_trick_cards(
     if not cards:
         return
 
-    width = screen.get_width()
-    height = screen.get_height()
+    width = surface.get_width()
+    height = surface.get_height()
     for agent, card in cards:
-        _blit_card(screen, card_image_path(card), _trick_pos(screen, agent, viewpoint=viewpoint), card_size)
-    _draw_label(screen, 'trick', (int(width * 0.62), int(height * 0.63)), size=18)
+        _blit_card(
+            surface,
+            card_image_path(card),
+            _trick_pos(surface, agent, viewpoint=viewpoint),
+            card_size,
+        )
+    _draw_label(
+        surface,
+        'trick',
+        (int(width * 0.62), int(height * 0.63)),
+        size=_label_size(18),
+    )
 
 
 def _agent_label(env: Any, agent: AgentId) -> str:
@@ -314,7 +516,7 @@ def _agent_label(env: Any, agent: AgentId) -> str:
 
 
 def _draw_scores(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
     env: Any,
     viewpoint: AgentId,
@@ -322,25 +524,39 @@ def _draw_scores(
     scores: dict[AgentId, int],
     turn: AgentId,
     score_label: str,
+    slot: int,
 ) -> None:
-    height = screen.get_height()
+    height = surface.get_height()
+    pad = max(4, int(16 * _LIVE['scale']))
     top_name = _agent_label(env, opponent)
     bottom_name = _agent_label(env, viewpoint)
+    n_slots = _LIVE['n_slots']
 
-    _draw_label_left(screen, top_name, (16, 12), size=22)
+    if n_slots > 1:
+        _draw_label_left(surface, f'#{slot + 1}', (pad, pad), size=_label_size(16))
+        name_y = pad + _label_size(18)
+    else:
+        name_y = pad
+
+    _draw_label_left(surface, top_name, (pad, name_y), size=_label_size(22))
     _draw_label_left(
-        screen,
+        surface,
         f'{scores[opponent]} {score_label}',
-        (16, 40),
-        size=18,
+        (pad, name_y + _label_size(24)),
+        size=_label_size(18),
     )
 
-    _draw_label_left(screen, bottom_name, (16, height - 52), size=22)
     _draw_label_left(
-        screen,
+        surface,
+        bottom_name,
+        (pad, height - pad - _label_size(44)),
+        size=_label_size(22),
+    )
+    _draw_label_left(
+        surface,
         f'{scores[viewpoint]} {score_label}  ·  turn={turn}',
-        (16, height - 28),
-        size=18,
+        (pad, height - pad - _label_size(20)),
+        size=_label_size(18),
     )
 
 
@@ -355,60 +571,67 @@ def _lerp(a: tuple[int, int], b: tuple[int, int], t: float) -> tuple[int, int]:
     )
 
 
+def _slot_prev(slot: int) -> dict[str, Any] | None:
+    return _LIVE['prev'].get(slot)
+
+
+def _set_slot_prev(slot: int, snapshot: dict[str, Any] | None) -> None:
+    if snapshot is None:
+        _LIVE['prev'].pop(slot, None)
+    else:
+        _LIVE['prev'][slot] = snapshot
+
+
 def _detect_play_flight(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
+    slot: int,
     viewpoint: AgentId,
     hands: dict[AgentId, list[Card]],
     lead_play: LeadPlay | None,
     pile_size: int,
 ) -> _Flight | None:
-    prev = _LIVE['prev']
+    prev = _slot_prev(slot)
     if prev is not None and prev.get('kind') != _LIVE['kind']:
         prev = None
-        _LIVE['prev'] = None
+        _set_slot_prev(slot, None)
 
-    # New deal / reset: pile grows again — don't animate across episodes.
     if prev is not None and pile_size > prev.get('pile_size', pile_size):
         prev = None
-        _LIVE['prev'] = None
+        _set_slot_prev(slot, None)
 
     prev_lead: LeadPlay | None = None if prev is None else prev['lead']
     prev_hands: dict[AgentId, list[Card]] | None = None if prev is None else prev['hands']
 
-    # Lead play: a new face-up card on the table.
     if lead_play is not None and (prev_lead is None or prev_lead.card != lead_play.card):
         agent = lead_play.agent
         card = lead_play.card
         if prev_hands is not None and card in prev_hands[agent]:
             source_hand = prev_hands[agent]
         else:
-            # First painted frame of an episode: reconstruct the pre-play hand.
             source_hand = [*hands[agent], card]
         start = _hand_card_pos(
-            screen,
+            surface,
             hand=source_hand,
             card=card,
             is_viewer=(agent == viewpoint),
         )
-        end = _trick_pos(screen, agent, viewpoint=viewpoint)
+        end = _trick_pos(surface, agent, viewpoint=viewpoint)
         return _Flight(card=card, agent=agent, start=start, end=end)
 
-    # Follow play: trick just resolved, so lead cleared. Infer the follower card.
     if prev_lead is not None and lead_play is None and prev_hands is not None:
         follower: AgentId = 'p2' if prev_lead.agent == 'p1' else 'p1'
         missing = [card for card in prev_hands[follower] if card not in hands[follower]]
         if not missing:
             return None
         card = missing[0]
-
         start = _hand_card_pos(
-            screen,
+            surface,
             hand=prev_hands[follower],
             card=card,
             is_viewer=(follower == viewpoint),
         )
-        end = _trick_pos(screen, follower, viewpoint=viewpoint)
+        end = _trick_pos(surface, follower, viewpoint=viewpoint)
         return _Flight(card=card, agent=follower, start=start, end=end)
 
     return None
@@ -426,8 +649,9 @@ def _new_cards(before: list[Card], after: list[Card]) -> list[Card]:
 
 
 def _detect_draw_flights(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     *,
+    slot: int,
     kind: GameKind,
     viewpoint: AgentId,
     hands: dict[AgentId, list[Card]],
@@ -435,12 +659,7 @@ def _detect_draw_flights(
     pile_size: int,
     winner: AgentId,
 ) -> list[_Flight]:
-    """Deck→hand draw flights after a trick.
-
-    Tressette: face-up (drawn cards are public).
-    Briscola: face-down (drawn cards stay hidden).
-    """
-    prev = _LIVE['prev']
+    prev = _slot_prev(slot)
     if prev is None or prev.get('kind') != kind:
         return []
     if lead_play is not None or prev.get('lead') is None:
@@ -450,7 +669,7 @@ def _detect_draw_flights(
 
     prev_hands: dict[AgentId, list[Card]] = prev['hands']
     loser: AgentId = 'p2' if winner == 'p1' else 'p1'
-    deck = _deck_pos(screen, kind=kind)
+    deck = _deck_pos(surface, kind=kind)
     flights: list[_Flight] = []
 
     for agent in (winner, loser):
@@ -459,12 +678,11 @@ def _detect_draw_flights(
             continue
         card = gained[0]
         end = _hand_card_pos(
-            screen,
+            surface,
             hand=hands[agent],
             card=card,
             is_viewer=(agent == viewpoint),
         )
-        # Tressette draws are public; Briscola only reveals your own card.
         face_up = kind == 'tressette' or agent == viewpoint
         flights.append(_Flight(card=card, agent=agent, start=deck, end=end, face_up=face_up))
 
@@ -484,16 +702,15 @@ def _pre_draw_hands(
 
 
 def _won_pile_pos(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     winner: AgentId,
     *,
     viewpoint: AgentId,
     index: int = 0,
 ) -> tuple[int, int]:
-    """Landing spot for claimed trick cards on the winner's side."""
-    width = screen.get_width()
-    height = screen.get_height()
-    x = int(width * 0.88) + index * 14
+    width = surface.get_width()
+    height = surface.get_height()
+    x = int(width * 0.88) + index * max(6, int(14 * _LIVE['scale']))
     if winner == viewpoint:
         y = int(height * 0.72)
     else:
@@ -501,35 +718,35 @@ def _won_pile_pos(
     return x, y
 
 
-def _animate_flight(
-    screen: pygame.Surface,
-    flight: _Flight,
-    *,
-    draw_frame: Callable[[], None],
-    card_size: tuple[int, int],
-    hold_ms: int = ANIM_HOLD_MS,
-) -> None:
-    _animate_flights(
-        screen,
-        [flight],
-        draw_frame=draw_frame,
-        card_size=card_size,
-        hold_ms=hold_ms,
-    )
-
-
 def _animate_flights(
-    screen: pygame.Surface,
+    surface: pygame.Surface,
     flights: list[_Flight],
     *,
     draw_frame: Callable[[], None],
     card_size: tuple[int, int],
-    hold_ms: int = ANIM_HOLD_MS,
+    hold_ms: int | None = None,
 ) -> None:
     if not flights:
         return
+    if hold_ms is None:
+        if ANIM_HOLD_MS <= 0:
+            hold_ms = 0
+        elif _LIVE['n_slots'] <= 1:
+            hold_ms = ANIM_HOLD_MS
+        else:
+            hold_ms = max(40, ANIM_HOLD_MS // 3)
+
+    if ANIM_MS <= 0:
+        draw_frame()
+        for flight in flights:
+            path = card_image_path(flight.card) if flight.face_up else CARD_BACK
+            _blit_card(surface, path, flight.end, card_size)
+        _present()
+        _wait_step(hold_ms)
+        return
 
     clock = _LIVE['clock']
+    anim_ms = ANIM_MS if _LIVE['n_slots'] <= 1 else max(90, ANIM_MS // 2)
     start_ticks = pygame.time.get_ticks()
 
     while True:
@@ -537,15 +754,15 @@ def _animate_flights(
             return
 
         elapsed = pygame.time.get_ticks() - start_ticks
-        t = min(1.0, elapsed / ANIM_MS)
+        t = min(1.0, elapsed / anim_ms)
         eased = _ease_out_cubic(t)
 
         draw_frame()
         for flight in flights:
             path = card_image_path(flight.card) if flight.face_up else CARD_BACK
             pos = _lerp(flight.start, flight.end, eased)
-            _blit_card(screen, path, pos, card_size)
-        pygame.display.flip()
+            _blit_card(surface, path, pos, card_size)
+        _present()
 
         if clock is not None:
             clock.tick(60)
@@ -555,28 +772,32 @@ def _animate_flights(
     draw_frame()
     for flight in flights:
         path = card_image_path(flight.card) if flight.face_up else CARD_BACK
-        _blit_card(screen, path, flight.end, card_size)
-    pygame.display.flip()
+        _blit_card(surface, path, flight.end, card_size)
+    _present()
     _wait_step(hold_ms)
 
 
 def _snapshot(
     *,
+    slot: int,
     viewpoint: AgentId,
     hands: dict[AgentId, list[Card]],
     lead_play: LeadPlay | None,
     pile_size: int,
 ) -> None:
-    _LIVE['prev'] = {
-        'kind': _LIVE['kind'],
-        'viewpoint': viewpoint,
-        'hands': {
-            'p1': list(hands['p1']),
-            'p2': list(hands['p2']),
+    _set_slot_prev(
+        slot,
+        {
+            'kind': _LIVE['kind'],
+            'viewpoint': viewpoint,
+            'hands': {
+                'p1': list(hands['p1']),
+                'p2': list(hands['p2']),
+            },
+            'lead': lead_play,
+            'pile_size': pile_size,
         },
-        'lead': lead_play,
-        'pile_size': pile_size,
-    }
+    )
 
 
 def _render_table(
@@ -587,7 +808,9 @@ def _render_table(
     score_label: str,
     draw_center: Callable[[pygame.Surface, tuple[int, int]], None],
 ) -> pygame.Surface:
-    screen = _get_screen(kind)
+    slot = int(getattr(env, 'render_slot', 0))
+    surface = _get_pane(kind, slot)
+    scale = _LIVE['scale']
     opponent: AgentId = 'p2' if viewpoint == 'p1' else 'p1'
     hands = {
         'p1': list(env.hands['p1'].cards),
@@ -596,14 +819,16 @@ def _render_table(
     pile_size = len(env.pile)
 
     play_flight = _detect_play_flight(
-        screen,
+        surface,
+        slot=slot,
         viewpoint=viewpoint,
         hands=hands,
         lead_play=env.lead_play,
         pile_size=pile_size,
     )
     draw_flights = _detect_draw_flights(
-        screen,
+        surface,
+        slot=slot,
         kind=kind,
         viewpoint=viewpoint,
         hands=hands,
@@ -612,83 +837,80 @@ def _render_table(
         winner=env.agent_selection,
     )
 
-    # While plays/draws animate, keep hands at the pre-draw composition.
     shown_hands = _pre_draw_hands(hands=hands, draw_flights=draw_flights) if draw_flights else {
         'p1': list(hands['p1']),
         'p2': list(hands['p2']),
     }
     trick_cards: list[tuple[AgentId, Card]] = []
+    prev = _slot_prev(slot)
     if env.lead_play is not None:
         trick_cards = [(env.lead_play.agent, env.lead_play.card)]
-    elif play_flight is not None and _LIVE['prev'] is not None and _LIVE['prev']['lead'] is not None:
-        # Follow play in progress: keep the lead visible until draws finish.
-        prev_lead = _LIVE['prev']['lead']
+    elif play_flight is not None and prev is not None and prev['lead'] is not None:
+        prev_lead = prev['lead']
         trick_cards = [(prev_lead.agent, prev_lead.card)]
 
     def paint(active_trick: list[tuple[AgentId, Card]] | None = None) -> None:
         viewer_hand = shown_hands[viewpoint]
         opponent_hand = shown_hands[opponent]
         hand_count = max(len(viewer_hand), len(opponent_hand), 1)
-        card_size = _card_size(hand_count)
+        card_size = _card_size(hand_count, scale)
         gap = _hand_gap(card_size[0], hand_count)
 
-        screen.fill(TABLE_COLOR)
+        surface.fill(TABLE_COLOR)
         _draw_hands(
-            screen,
+            surface,
             viewer_hand=viewer_hand,
             opponent_hand=opponent_hand,
             card_size=card_size,
             gap=gap,
         )
-        draw_center(screen, card_size)
+        draw_center(surface, card_size)
         _draw_trick_cards(
-            screen,
+            surface,
             trick_cards if active_trick is None else active_trick,
             viewpoint=viewpoint,
             card_size=card_size,
         )
         _draw_scores(
-            screen,
+            surface,
             env=env,
             viewpoint=viewpoint,
             opponent=opponent,
             scores=env.scores,
             turn=env.agent_selection,
             score_label=score_label,
+            slot=slot,
         )
 
     def card_size_for(hand_count: int) -> tuple[int, int]:
-        return _card_size(max(hand_count, 1))
+        return _card_size(max(hand_count, 1), scale)
 
     if play_flight is not None:
         settled: list[tuple[AgentId, Card]] = []
-        if env.lead_play is None and _LIVE['prev'] is not None and _LIVE['prev']['lead'] is not None:
-            prev_lead = _LIVE['prev']['lead']
+        if env.lead_play is None and prev is not None and prev['lead'] is not None:
+            prev_lead = prev['lead']
             settled = [(prev_lead.agent, prev_lead.card)]
 
         def play_frame() -> None:
             paint(settled)
 
-        size = card_size_for(
-            max(len(shown_hands[viewpoint]), len(shown_hands[opponent]), 1)
-        )
-        _animate_flight(
-            screen,
-            play_flight,
+        size = card_size_for(max(len(shown_hands[viewpoint]), len(shown_hands[opponent]), 1))
+        _animate_flights(
+            surface,
+            [play_flight],
             draw_frame=play_frame,
             card_size=size,
         )
         trick_cards = [*settled, (play_flight.agent, play_flight.card)]
 
-        # After the follower lands, slide both trick cards to the winner's side.
         if env.lead_play is None and len(trick_cards) == 2:
             winner: AgentId = env.agent_selection
             claim_flights = [
                 _Flight(
                     card=card,
                     agent=agent,
-                    start=_trick_pos(screen, agent, viewpoint=viewpoint),
-                    end=_won_pile_pos(screen, winner, viewpoint=viewpoint, index=index),
+                    start=_trick_pos(surface, agent, viewpoint=viewpoint),
+                    end=_won_pile_pos(surface, winner, viewpoint=viewpoint, index=index),
                     face_up=True,
                 )
                 for index, (agent, card) in enumerate(trick_cards)
@@ -698,11 +920,10 @@ def _render_table(
                 paint([])
 
             _animate_flights(
-                screen,
+                surface,
                 claim_flights,
                 draw_frame=claim_frame,
                 card_size=size,
-                hold_ms=max(ANIM_HOLD_MS // 2, 80),
             )
             trick_cards = []
 
@@ -712,31 +933,76 @@ def _render_table(
         def draw_frame() -> None:
             paint(trick_cards)
 
-        _animate_flight(
-            screen,
-            draw_flight,
+        _animate_flights(
+            surface,
+            [draw_flight],
             draw_frame=draw_frame,
             card_size=card_size_for(hand_count),
-            hold_ms=max(ANIM_HOLD_MS // 2, 80),
         )
         shown_hands[draw_flight.agent].append(draw_flight.card)
 
-    # Final settled frame for the current env state.
     shown_hands['p1'] = list(hands['p1'])
     shown_hands['p2'] = list(hands['p2'])
     final_trick: list[tuple[AgentId, Card]] = []
     if env.lead_play is not None:
         final_trick = [(env.lead_play.agent, env.lead_play.card)]
     paint(final_trick)
-    pygame.display.flip()
+    _present()
     _wait_step()
     _snapshot(
+        slot=slot,
         viewpoint=viewpoint,
         hands=hands,
         lead_play=env.lead_play,
         pile_size=pile_size,
     )
-    return screen
+    return surface
+
+
+def _briscola_draw_center(env: Briscola2PEnv) -> Callable[[pygame.Surface, tuple[int, int]], None]:
+    def draw_center(surface: pygame.Surface, card_size: tuple[int, int]) -> None:
+        width = surface.get_width()
+        height = surface.get_height()
+        if env.briscola is not None:
+            _blit_card(
+                surface,
+                card_image_path(env.briscola),
+                (int(width * 0.24), int(height * 0.48)),
+                card_size,
+            )
+        if env.pile:
+            _blit_card(surface, CARD_BACK, (int(width * 0.32), int(height * 0.47)), card_size)
+            _blit_card(surface, CARD_BACK, (int(width * 0.33), int(height * 0.48)), card_size)
+
+        if env.briscola is not None or env.pile:
+            label = 'briscola'
+            if env.pile:
+                label = f'briscola / deck ({len(env.pile)})'
+            _draw_label(
+                surface,
+                label,
+                (int(width * 0.29), int(height * 0.63)),
+                size=_label_size(18),
+            )
+
+    return draw_center
+
+
+def _tressette_draw_center(env: Tressette2PEnv) -> Callable[[pygame.Surface, tuple[int, int]], None]:
+    def draw_center(surface: pygame.Surface, card_size: tuple[int, int]) -> None:
+        width = surface.get_width()
+        height = surface.get_height()
+        if env.pile:
+            _blit_card(surface, CARD_BACK, (int(width * 0.30), int(height * 0.47)), card_size)
+            _blit_card(surface, CARD_BACK, (int(width * 0.31), int(height * 0.48)), card_size)
+            _draw_label(
+                surface,
+                f'deck ({len(env.pile)})',
+                (int(width * 0.31), int(height * 0.63)),
+                size=_label_size(18),
+            )
+
+    return draw_center
 
 
 def render_briscola_table(
@@ -745,36 +1011,14 @@ def render_briscola_table(
     viewpoint: AgentId = 'p1',
     show: bool = True,
 ) -> pygame.Surface | None:
-    """Draw a top-down Briscola table from one player's viewpoint."""
     if not show:
         return None
-
-    def draw_center(screen: pygame.Surface, card_size: tuple[int, int]) -> None:
-        width = screen.get_width()
-        height = screen.get_height()
-        if env.briscola is not None:
-            _blit_card(
-                screen,
-                card_image_path(env.briscola),
-                (int(width * 0.24), int(height * 0.48)),
-                card_size,
-            )
-        if env.pile:
-            _blit_card(screen, CARD_BACK, (int(width * 0.32), int(height * 0.47)), card_size)
-            _blit_card(screen, CARD_BACK, (int(width * 0.33), int(height * 0.48)), card_size)
-
-        if env.briscola is not None or env.pile:
-            label = 'briscola'
-            if env.pile:
-                label = f'briscola / deck ({len(env.pile)})'
-            _draw_label(screen, label, (int(width * 0.29), int(height * 0.63)), size=18)
-
     return _render_table(
         env,
         kind='briscola',
         viewpoint=viewpoint,
         score_label='pts',
-        draw_center=draw_center,
+        draw_center=_briscola_draw_center(env),
     )
 
 
@@ -784,65 +1028,305 @@ def render_tressette_table(
     viewpoint: AgentId = 'p1',
     show: bool = True,
 ) -> pygame.Surface | None:
-    """Draw a top-down Tressette table from one player's viewpoint."""
     if not show:
         return None
-
-    def draw_center(screen: pygame.Surface, card_size: tuple[int, int]) -> None:
-        width = screen.get_width()
-        height = screen.get_height()
-        if env.pile:
-            _blit_card(screen, CARD_BACK, (int(width * 0.30), int(height * 0.47)), card_size)
-            _blit_card(screen, CARD_BACK, (int(width * 0.31), int(height * 0.48)), card_size)
-            _draw_label(
-                screen,
-                f'deck ({len(env.pile)})',
-                (int(width * 0.31), int(height * 0.63)),
-                size=18,
-            )
-
     return _render_table(
         env,
         kind='tressette',
         viewpoint=viewpoint,
         score_label='thirds',
-        draw_center=draw_center,
+        draw_center=_tressette_draw_center(env),
     )
 
 
-def _lead_first_card(env: Briscola2PEnv | Tressette2PEnv, agent: AgentId = 'p1') -> None:
-    from environments.cards_env import LeadPlay
+@dataclass(slots=True)
+class _PaneFrame:
+    env: Any
+    slot: int
+    surface: pygame.Surface
+    viewpoint: AgentId
+    opponent: AgentId
+    score_label: str
+    draw_center: Callable[[pygame.Surface, tuple[int, int]], None]
+    hands: dict[AgentId, list[Card]]
+    shown_hands: dict[AgentId, list[Card]]
+    trick_cards: list[tuple[AgentId, Card]]
+    play_flight: _Flight | None
+    claim_flights: list[_Flight]
+    draw_flights: list[_Flight]
 
-    if env.agent_selection != agent or not env.hands[agent].cards:
+
+def _score_label_for(kind: GameKind) -> str:
+    return 'pts' if kind == 'briscola' else 'thirds'
+
+
+def _prepare_pane_frame(env: Any, kind: GameKind) -> _PaneFrame:
+    slot = int(getattr(env, 'render_slot', 0))
+    surface = _get_pane(kind, slot)
+    viewpoint: AgentId = 'p1'
+    opponent: AgentId = 'p2'
+    hands = {
+        'p1': list(env.hands['p1'].cards),
+        'p2': list(env.hands['p2'].cards),
+    }
+    pile_size = len(env.pile)
+    play_flight = _detect_play_flight(
+        surface,
+        slot=slot,
+        viewpoint=viewpoint,
+        hands=hands,
+        lead_play=env.lead_play,
+        pile_size=pile_size,
+    )
+    draw_flights = _detect_draw_flights(
+        surface,
+        slot=slot,
+        kind=kind,
+        viewpoint=viewpoint,
+        hands=hands,
+        lead_play=env.lead_play,
+        pile_size=pile_size,
+        winner=env.agent_selection,
+    )
+    shown_hands = _pre_draw_hands(hands=hands, draw_flights=draw_flights) if draw_flights else {
+        'p1': list(hands['p1']),
+        'p2': list(hands['p2']),
+    }
+    prev = _slot_prev(slot)
+    trick_cards: list[tuple[AgentId, Card]] = []
+    if env.lead_play is not None:
+        trick_cards = [(env.lead_play.agent, env.lead_play.card)]
+    elif play_flight is not None and prev is not None and prev['lead'] is not None:
+        prev_lead = prev['lead']
+        trick_cards = [(prev_lead.agent, prev_lead.card)]
+
+    claim_flights: list[_Flight] = []
+    if play_flight is not None and env.lead_play is None and prev is not None and prev['lead'] is not None:
+        settled = [(prev['lead'].agent, prev['lead'].card), (play_flight.agent, play_flight.card)]
+        winner: AgentId = env.agent_selection
+        claim_flights = [
+            _Flight(
+                card=card,
+                agent=agent,
+                start=_trick_pos(surface, agent, viewpoint=viewpoint),
+                end=_won_pile_pos(surface, winner, viewpoint=viewpoint, index=index),
+                face_up=True,
+            )
+            for index, (agent, card) in enumerate(settled)
+        ]
+
+    if kind == 'briscola':
+        draw_center = _briscola_draw_center(env)
+    else:
+        draw_center = _tressette_draw_center(env)
+
+    return _PaneFrame(
+        env=env,
+        slot=slot,
+        surface=surface,
+        viewpoint=viewpoint,
+        opponent=opponent,
+        score_label=_score_label_for(kind),
+        draw_center=draw_center,
+        hands=hands,
+        shown_hands=shown_hands,
+        trick_cards=trick_cards,
+        play_flight=play_flight,
+        claim_flights=claim_flights,
+        draw_flights=draw_flights,
+    )
+
+
+def _paint_pane_frame(
+    frame: _PaneFrame,
+    *,
+    trick_cards: list[tuple[AgentId, Card]] | None = None,
+    flying: list[_Flight] | None = None,
+    t: float = 1.0,
+) -> None:
+    scale = _LIVE['scale']
+    viewer_hand = frame.shown_hands[frame.viewpoint]
+    opponent_hand = frame.shown_hands[frame.opponent]
+    hand_count = max(len(viewer_hand), len(opponent_hand), 1)
+    card_size = _card_size(hand_count, scale)
+    gap = _hand_gap(card_size[0], hand_count)
+    trick = frame.trick_cards if trick_cards is None else trick_cards
+
+    frame.surface.fill(TABLE_COLOR)
+    _draw_hands(
+        frame.surface,
+        viewer_hand=viewer_hand,
+        opponent_hand=opponent_hand,
+        card_size=card_size,
+        gap=gap,
+    )
+    frame.draw_center(frame.surface, card_size)
+    _draw_trick_cards(
+        frame.surface,
+        trick,
+        viewpoint=frame.viewpoint,
+        card_size=card_size,
+    )
+    _draw_scores(
+        frame.surface,
+        env=frame.env,
+        viewpoint=frame.viewpoint,
+        opponent=frame.opponent,
+        scores=frame.env.scores,
+        turn=frame.env.agent_selection,
+        score_label=frame.score_label,
+        slot=frame.slot,
+    )
+    if flying:
+        eased = _ease_out_cubic(t)
+        for flight in flying:
+            path = card_image_path(flight.card) if flight.face_up else CARD_BACK
+            pos = _lerp(flight.start, flight.end, eased)
+            _blit_card(frame.surface, path, pos, card_size)
+
+
+def _animate_parallel_phase(
+    frames: list[_PaneFrame],
+    flights_of: Callable[[_PaneFrame], list[_Flight]],
+    trick_of: Callable[[_PaneFrame], list[tuple[AgentId, Card]]],
+) -> None:
+    active = [(frame, flights_of(frame)) for frame in frames]
+    if not any(flights for _, flights in active):
         return
 
-    led = env.hands[agent].cards[0]
-    env.hands[agent].play_card(led)
-    env.lead_play = LeadPlay(agent=agent, card=led)
-    env.agent_selection = 'p2' if agent == 'p1' else 'p1'
+    if ANIM_MS <= 0:
+        for frame, flights in active:
+            _paint_pane_frame(frame, trick_cards=trick_of(frame), flying=flights, t=1.0)
+        _present()
+        return
+
+    clock = _LIVE['clock']
+    anim_ms = max(90, ANIM_MS // 2) if _LIVE['n_slots'] > 1 else ANIM_MS
+    start_ticks = pygame.time.get_ticks()
+    while True:
+        if not _pump_events():
+            return
+        elapsed = pygame.time.get_ticks() - start_ticks
+        t = min(1.0, elapsed / anim_ms)
+        for frame, flights in active:
+            _paint_pane_frame(frame, trick_cards=trick_of(frame), flying=flights, t=t)
+        _present()
+        if clock is not None:
+            clock.tick(60)
+        if t >= 1.0:
+            break
 
 
-def sketch_briscola(*, seed: int = 0, save_path: Path | None = None) -> None:
-    from environments.briscola_env import raw_env
+def _paint_env_static(env: Any, kind: GameKind) -> None:
+    frame = _prepare_pane_frame(env, kind)
+    # Static view uses final hands / trick (no in-flight cards).
+    frame.shown_hands = {
+        'p1': list(frame.hands['p1']),
+        'p2': list(frame.hands['p2']),
+    }
+    final_trick: list[tuple[AgentId, Card]] = []
+    if env.lead_play is not None:
+        final_trick = [(env.lead_play.agent, env.lead_play.card)]
+    frame.trick_cards = final_trick
+    _paint_pane_frame(frame)
+    _snapshot(
+        slot=frame.slot,
+        viewpoint=frame.viewpoint,
+        hands=frame.hands,
+        lead_play=env.lead_play,
+        pile_size=len(env.pile),
+    )
 
-    env = raw_env(render_mode=None)
-    env.reset(seed=seed)
-    _lead_first_card(env)
-    screen = render_briscola_table(env, viewpoint='p1', show=True)
-    if save_path is not None and screen is not None:
-        pygame.image.save(screen, str(save_path))
-        print(f'Saved sketch to {save_path}')
-    close_live_window()
+
+def _redraw_parallel_envs_static() -> None:
+    kind = _LIVE['kind']
+    if kind is None:
+        return
+    for env in _LIVE.get('parallel_envs', []):
+        if getattr(env, 'hands', None) is None:
+            continue
+        _paint_env_static(env, kind)
+    _present()
 
 
-def sketch_tressette(*, seed: int = 0, save_path: Path | None = None) -> None:
-    from environments.tressette_env import raw_env
+def render_parallel_round(envs: list[Any], kind: GameKind) -> None:
+    """Step-synced render: all panes animate their latest action together."""
+    if _LIVE['screen'] is None:
+        return
 
-    env = raw_env(render_mode=None)
-    env.reset(seed=seed)
-    _lead_first_card(env)
-    screen = render_tressette_table(env, viewpoint='p1', show=True)
-    if save_path is not None and screen is not None:
-        pygame.image.save(screen, str(save_path))
-        print(f'Saved sketch to {save_path}')
-    close_live_window()
+    frames = [_prepare_pane_frame(env, kind) for env in envs]
+
+    # 1) Cards played to the trick.
+    def play_flights(frame: _PaneFrame) -> list[_Flight]:
+        return [frame.play_flight] if frame.play_flight is not None else []
+
+    def play_trick(frame: _PaneFrame) -> list[tuple[AgentId, Card]]:
+        if frame.play_flight is None:
+            return frame.trick_cards
+        # Keep only the prior lead while the new card flies in.
+        return [card for card in frame.trick_cards if card[1] != frame.play_flight.card]
+
+    _animate_parallel_phase(frames, play_flights, play_trick)
+
+    for frame in frames:
+        if frame.play_flight is not None:
+            settled = play_trick(frame)
+            frame.trick_cards = [*settled, (frame.play_flight.agent, frame.play_flight.card)]
+
+    # 2) Claim both cards toward the winner.
+    _animate_parallel_phase(
+        frames,
+        lambda frame: frame.claim_flights,
+        lambda frame: frame.trick_cards if not frame.claim_flights else [],
+    )
+    for frame in frames:
+        if frame.claim_flights:
+            frame.trick_cards = []
+
+    # 3) Draws — winner then loser, still synced across panes.
+    max_draws = max((len(frame.draw_flights) for frame in frames), default=0)
+    for draw_index in range(max_draws):
+        def draw_flights(frame: _PaneFrame, index: int = draw_index) -> list[_Flight]:
+            if index < len(frame.draw_flights):
+                return [frame.draw_flights[index]]
+            return []
+
+        _animate_parallel_phase(
+            frames,
+            draw_flights,
+            lambda frame: frame.trick_cards,
+        )
+        for frame in frames:
+            if draw_index < len(frame.draw_flights):
+                flight = frame.draw_flights[draw_index]
+                frame.shown_hands[flight.agent].append(flight.card)
+
+    # Final settled frames + snapshots.
+    for frame in frames:
+        frame.shown_hands = {
+            'p1': list(frame.hands['p1']),
+            'p2': list(frame.hands['p2']),
+        }
+        final_trick: list[tuple[AgentId, Card]] = []
+        if frame.env.lead_play is not None:
+            final_trick = [(frame.env.lead_play.agent, frame.env.lead_play.card)]
+        frame.trick_cards = final_trick
+        _paint_pane_frame(frame)
+        _snapshot(
+            slot=frame.slot,
+            viewpoint=frame.viewpoint,
+            hands=frame.hands,
+            lead_play=frame.env.lead_play,
+            pile_size=len(frame.env.pile),
+        )
+
+    _present()
+    _wait_step()
+
+
+def paint_parallel_static(envs: list[Any], kind: GameKind) -> None:
+    """Paint current env states with no animation (deals / resize)."""
+    for env in envs:
+        _paint_env_static(env, kind)
+    _present()
+
