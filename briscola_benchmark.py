@@ -55,8 +55,8 @@ render_mode = None
 if len(argv) > 2:
     render_mode = argv[2]
 
-for name1, make1 in agent_factories:
-    for name2, make2 in agent_factories:
+for i, (name1, make1) in enumerate(agent_factories):
+    for name2, make2 in agent_factories[i:]:
         agent1, agent2 = make1('p1'), make2('p2')
         print(f'Starting match: {agent1.name} [p1] vs {agent2.name} [p2], {EPISODES} episodes')
         score1, score2 = challenge(agent1, agent2, EPISODES, render_mode)
