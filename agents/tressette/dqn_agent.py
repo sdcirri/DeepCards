@@ -1,3 +1,5 @@
+import torch
+
 from environments.tressette_env import AgentId, Tressette2PEnv
 
 from ..dqn import choose_action as choose_action
@@ -6,10 +8,8 @@ from ..dqn import CardNN as BaseCardNN
 from ..dqn import train as dqn_train
 from ..agent import Cards2PAgent
 
-from .random_agent import RandomAgent
 
-
-OBS_DIM = 120
+OBS_DIM = 160
 
 
 class CardNN(BaseCardNN):
@@ -21,7 +21,7 @@ def train(
         env: Tressette2PEnv,
         whoami: AgentId,
         actions: int,
-        device,
+        device: torch.device,
         training_opponents: list[Cards2PAgent],
         episodes_per_opponent: list[int],
         verbose: bool = True,

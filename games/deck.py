@@ -37,7 +37,7 @@ class Hand:
 
     def see_card(self, card: Card) -> None:
         """
-        For when adversary either plays a trick
+        For when opponent either plays a trick
         or takes a card
         """
         self.seen.add(card)

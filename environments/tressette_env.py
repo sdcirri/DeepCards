@@ -3,14 +3,16 @@ from typing import Any
 
 from pettingzoo import AECEnv
 
-from games.tressette import TressetteHand, first_card_wins, card_point_thirds
-from games.deck import Card
+import numpy as np
 
-from environments.cards_env import (
+from games.tressette import TressetteHand, first_card_wins, card_point_thirds
+from games.deck import Card, DECK
+
+from .cards_env import (
     Action as Action,
     AgentId,
     Cards2PEnv,
-    wrap_cards_env,
+    wrap_cards_env, BinaryArray,
 )
 
 
@@ -20,7 +22,7 @@ class Tressette2PEnv(Cards2PEnv):
         'render_modes': ['human', 'ansi'],
         'is_parallelizable': False,
     }
-    OBSERVATION_PLANES = 3
+    OBSERVATION_PLANES = 4
     MAX_HAND_POINTS = 6  # two aces = 6 thirds; scales rewards to ~[-1, 1]
 
     def _deal(self, shuffled_cards: list[Card]) -> None:
@@ -62,16 +64,24 @@ class Tressette2PEnv(Cards2PEnv):
         loser_card = self.pile.popleft()
 
         self.hands[winner].take_card(winner_card)
-        self.hands[loser].see_card(winner_card)
+        self.hands[loser].see_opponent_draw(winner_card)
 
         self.hands[loser].take_card(loser_card)
-        self.hands[winner].see_card(loser_card)
+        self.hands[winner].see_opponent_draw(loser_card)
 
     def _on_game_finished(self, winner: AgentId) -> None:
         # Extra point (three thirds) for last trick win
         last_trick_thirds = 3
         self.scores[winner] += last_trick_thirds
         self.rewards[winner] += last_trick_thirds / self.MAX_HAND_POINTS
+
+    def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
+        opponent_hand_encoding =  np.fromiter(
+            (card in self.hands[agent].known_opponent_hand for card in DECK),
+            dtype=np.int8,
+            count=len(DECK),
+        )
+        return [opponent_hand_encoding]
 
     def _score_info(self, agent: AgentId, opponent: AgentId) -> dict[str, Any]:
         return {

@@ -7,7 +7,7 @@ import numpy as np
 from games.briscola import BriscolaHand, first_card_wins, card_points
 from games.deck import DECK, Card, CARD_INDEX
 
-from environments.cards_env import (
+from .cards_env import (
     Action as Action,
     AgentId,
     BinaryArray,

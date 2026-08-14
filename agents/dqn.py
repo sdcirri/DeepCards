@@ -43,6 +43,9 @@ class ReplayBuffer:
     def sample(self, batch_size: int) -> list[tuple]:
         return random.sample(self.buffer, batch_size)
 
+    def clear(self) -> None:
+        self.buffer.clear()
+
     def __len__(self) -> int:
         return len(self.buffer)
 
@@ -153,7 +156,7 @@ def train(
     target_net = CardNN(obs_dim, actions).to(device)
     target_net.load_state_dict(online_net.state_dict())
 
-    optimizer = optim.Adam(online_net.parameters(), lr=1e-4)
+    optimizer = optim.AdamW(online_net.parameters(), lr=1e-4)
     replay_buffer = ReplayBuffer(capacity=100_000)
 
     batch_size = 64
@@ -164,6 +167,8 @@ def train(
 
     for i, opponent in enumerate(training_opponents):
         epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
+        replay_buffer.clear()
+
         for episode in range(episodes_per_opponent[i]):
             env.reset()
 

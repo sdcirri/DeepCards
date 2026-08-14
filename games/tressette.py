@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .deck import Suit, Card, Hand
 
@@ -12,6 +12,7 @@ CARD_POWER = {
 
 @dataclass(slots=True)
 class TressetteHand(Hand):
+    known_opponent_hand: list[Card] = field(init=False, default_factory=list)
 
     def get_accusi_points(self) -> int:
         napoli = {s: 0 for s in Suit}
@@ -32,6 +33,22 @@ class TressetteHand(Hand):
         if not same_suit:
             return cards
         return same_suit
+
+    def see_opponent_draw(self, drawn_card: Card) -> None:
+        """
+        Remember what the opponent drawn
+        """
+        self.see_card(drawn_card)
+        self.known_opponent_hand.append(drawn_card)
+
+    def see_card(self, card: Card) -> None:
+        """
+        Also need to update self.known_opponent_hand
+        when a card is played
+        """
+        Hand.see_card(self, card)
+        if card in self.known_opponent_hand:
+            self.known_opponent_hand.remove(card)
 
 
 def card_point_thirds(card: Card) -> int:

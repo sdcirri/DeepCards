@@ -1,3 +1,5 @@
+import torch
+
 from environments.briscola_env import AgentId, Briscola2PEnv
 
 from ..dqn import choose_action as choose_action
@@ -5,8 +7,6 @@ from ..dqn import DQNAgent as BaseDQNAgent
 from ..dqn import CardNN as BaseCardNN
 from ..dqn import train as dqn_train
 from ..agent import Cards2PAgent
-
-from .random_agent import RandomAgent
 
 
 OBS_DIM = 160
@@ -21,7 +21,7 @@ def train(
         env: Briscola2PEnv,
         whoami: AgentId,
         actions: int,
-        device,
+        device: torch.device,
         training_opponents: list[Cards2PAgent],
         episodes_per_opponent: list[int],
         verbose: bool = True,
