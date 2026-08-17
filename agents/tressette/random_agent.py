@@ -1,9 +1,7 @@
-import numpy as np
-
 from environments.tressette_env import Tressette2PEnv, AgentId, Action
-from games.deck import DECK
+from games.deck import CARD_INDEX
 
-from agents.agent import Cards2PAgent
+from ..agent import Cards2PAgent
 
 
 class RandomAgent(Cards2PAgent):
@@ -19,7 +17,5 @@ class RandomAgent(Cards2PAgent):
 
         lead = None if env.lead_play is None else env.lead_play.card
         legal = env.hands[self.whoami].legal_plays(lead)
-        while True:
-            action = self.np_random.integers(low=0, high=40, dtype=np.int32)
-            if DECK[action] in legal:
-                return action
+        action = self.np_random.choice(legal)
+        return CARD_INDEX[action]
