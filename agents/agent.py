@@ -66,10 +66,12 @@ def run_human_challenge(
     episodes: int,
     *,
     env_factory: Callable[[str | None], Any],
-    kind: Literal['briscola', 'tressette'],
+    kind: Literal['briscola', 'tressette', 'scopa'],
     score_of: Callable[[Any], tuple[int, int]],
 ) -> tuple[int, int]:
-    """Run episodes in-process, showing them in one split pygame window when possible."""
+    """
+    Run episodes in-process, showing them in one split pygame window when possible.
+    """
     from environments.piacentine_viz import (
         MAX_PARALLEL_EPISODES,
         begin_parallel_session,

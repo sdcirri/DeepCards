@@ -41,7 +41,6 @@ class Tressette2PEnv(Cards2PEnv):
         if self.render_mode == 'human':
             from environments.piacentine_viz import render_tressette_table
 
-            # Fixed camera: p1 at the bottom so plays come from the correct hand.
             render_tressette_table(self, viewpoint='p1')
 
         return None
