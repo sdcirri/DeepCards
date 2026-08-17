@@ -84,8 +84,8 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
         self.np_random, self.np_random_seed = seeding.np_random(None)
 
-        self.agents: list[AgentId] = []
-        self.agent_selection: AgentId = 'p1'
+        self.agents: list[AgentId] = ['p1', 'p2']
+        self.agent_selection: AgentId = self.np_random.choice(self.agents)
         self._skip_agent_selection = None
         self.rewards: dict[AgentId, float] = {}
         self._cumulative_rewards: dict[AgentId, float] = {}

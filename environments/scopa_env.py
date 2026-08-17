@@ -1,3 +1,4 @@
+import random
 from typing import Any, TypeAlias
 from collections import deque
 
@@ -63,7 +64,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             agent: index
             for index, agent in enumerate(self.possible_agents)
         }
-        self.last_winner = 'p1'
+        self.first_at_hand = random.choice(('p1', 'p2'))
+        self.last_winner = self.first_at_hand
 
         self._action_spaces = {
             agent: spaces.Dict({
@@ -262,8 +264,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             self.scores['p2'] += 1
 
     def _redeal_hands(self) -> None:
-        """Deal three cards to each player from the stock; table is unchanged."""
-        for agent in self.possible_agents:
+        """
+        Deal three cards to each player from the stock; table is unchanged.
+        """
+        for agent in (self.first_at_hand, 'p1' if self.first_at_hand == 'p2' else 'p2'):
             for _ in range(3):
                 if not self.pile:
                     raise RuntimeError('Stock exhausted mid-deal')
