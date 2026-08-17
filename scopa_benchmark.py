@@ -4,6 +4,7 @@ from sys import argv
 
 import torch
 
+from agents.scopa.greedy_agent import GreedyAgent
 from agents.scopa.random_agent import RandomAgent
 
 from environments.scopa_env import env as env_factory, AgentId
@@ -40,6 +41,7 @@ else:
 
 agent_factories: list[tuple[str, AgentFactory]] = [
     ('Random', lambda whoami: RandomAgent(whoami)),
+    ('Greedy', lambda whoami: GreedyAgent(whoami)),
 ]
 
 EPISODES = 10_000
