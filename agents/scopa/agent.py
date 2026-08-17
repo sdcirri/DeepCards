@@ -1,4 +1,4 @@
-from agents.agent import Cards2PAgent, challenge_step, run_challenge
+from agents.agent import Cards2PAgent, challenge_step, run_challenge, run_human_challenge
 from environments.scopa_env import env as env_factory
 
 
@@ -16,8 +16,13 @@ def challenge(
     episodes: int,
     render_mode: str | None,
 ) -> tuple[int, int]:
-    # Sequential human rendering so each step goes through render_scopa_table
-    # (play / capture / redeal animations). The parallel grid path is static-only.
     if render_mode == 'human':
-        return run_challenge(agent1, agent2, episodes, _one_episode, 'human')
+        return run_human_challenge(
+            agent1,
+            agent2,
+            episodes,
+            env_factory=env_factory,
+            kind='scopa',
+            score_of=lambda raw: (raw.scores['p1'], raw.scores['p2']),
+        )
     return run_challenge(agent1, agent2, episodes, _one_episode, render_mode)
