@@ -4,6 +4,7 @@ from sys import argv
 
 import torch
 
+from agents.scopa.value_aware_greedy_agent import ValueAwareGreedyAgent
 from agents.scopa.dqn_agent import DQNAgent, CardNN, train
 from agents.scopa.greedy_agent import GreedyAgent
 from agents.scopa.random_agent import RandomAgent
@@ -32,8 +33,8 @@ else:
         'p1',
         80,
         DQNAgent.device,
-        [RandomAgent('p2'), GreedyAgent('p2')],
-        [2000, 20000],
+        [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
+        [1000, 5000, 25000],
         True
     )
     torch.save(dqn_net.state_dict(), MODEL_PATH)
@@ -43,6 +44,7 @@ else:
 agent_factories: list[tuple[str, AgentFactory]] = [
     ('Random', lambda whoami: RandomAgent(whoami)),
     ('Greedy', lambda whoami: GreedyAgent(whoami)),
+    ('Value-Aware Greedy', lambda whoami: ValueAwareGreedyAgent(whoami)),
     ('DQN', lambda whoami: DQNAgent(whoami, dqn_net)),
 ]
 
