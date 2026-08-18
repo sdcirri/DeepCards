@@ -1,9 +1,10 @@
 from dataclasses import dataclass, field
+from functools import cache
 
-from .deck import Suit, Card, Hand
+from .deck import Suit, Card, Hand, CARD_INDEX
 
 
-def find_takes(card: Card, table: list[Card]) -> list[list[Card]]:
+def find_takes(card: Card, table: tuple[Card]) -> list[list[Card]]:
     """
     Finds all possible combinations of cards
     that can be taken playing `card`, assuming
@@ -27,6 +28,46 @@ def find_takes(card: Card, table: list[Card]) -> list[list[Card]]:
     return dp[card.number]
 
 
+def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card, list[Card]]]:
+    """
+    List legal plays, returns a list of
+    tuples representing legal plays like this:
+    (playable_card, [list of cards on the table taken by that card])
+    """
+    ret = []
+    for card in hand:
+        same_num = [c for c in table if c.number == card.number]
+        if len(same_num) > 0:
+            # If same number is already on the table you are
+            #   forced to take
+            ret += [(card, [c]) for c in same_num]
+        else:
+            takes = find_takes(card, table)
+            if len(takes) == 0:
+                # If played, card will just stack up on the table
+                ret += [(card, [])]
+            else:
+                ret += [(card, take) for take in takes]
+    return ret
+
+
+@cache
+def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card, list[Card]]]:
+    """
+    List legal plays, returns a list of
+    tuples representing legal plays like this:
+    (playable_card, [list of cards on the table taken by that card]),
+    sorted by card indexes
+    """
+    return sorted(
+        legal_plays(hand, table),
+        key=lambda pt: (
+            CARD_INDEX[pt[0]],
+            tuple(sorted(CARD_INDEX[c] for c in pt[1])),
+        ),
+    )
+
+
 @dataclass
 class ScopaScope:
     scope: int = 0
@@ -48,23 +89,10 @@ class ScopaHand(Hand):
         """
         List legal plays, returns a list of
         tuples representing legal plays like this:
-        (playable_card, [list of cards on the table taken by that card])
+        (playable_card, [list of cards on the table taken by that card]),
+        sorted by card indexes
         """
-        ret = []
-        for card in self.cards:
-            same_num = [c for c in table if c.number == card.number]
-            if len(same_num) > 0:
-                # If same number is already on the table you are
-                #   forced to take
-                ret += [(card, [c]) for c in same_num]
-            else:
-                takes = find_takes(card, table)
-                if len(takes) == 0:
-                    # If played, card will just stack up on the table
-                    ret += [(card, [])]
-                else:
-                    ret += [(card, take) for take in takes]
-        return ret
+        return sorted_legal_plays(tuple(self.cards), tuple(table))
 
     def see_opponent_taken(self, cards: list[Card]) -> None:
         self.opponent_taken_cards.extend(cards)

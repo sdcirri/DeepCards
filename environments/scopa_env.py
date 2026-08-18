@@ -16,19 +16,20 @@ from games.scopa import ScopaHand
 from .cards_env import AgentId, BinaryArray
 
 
-Action: TypeAlias = dict[str, int | BinaryArray]
+Action: TypeAlias = dict[str, int]
 Observation: TypeAlias = BinaryArray
 
 
-def cards_from_action(action: Action) -> tuple[Card, list[Card]]:
+def cards_from_action(action: Action, legal: list[tuple[Card, list[Card]]]) -> tuple[Card, list[Card]]:
     """
     Resolves an action into a high-level (played, taken) tuple
     """
-    played_idx, taken_arr = int(action['played']), action['taken']
+    played_idx, taken_idx = action['played'], action['taken']
     if not 0 <= played_idx < len(DECK):
         raise ValueError(f'Invalid action: {action}')
 
-    return DECK[played_idx], [DECK[i] for i, x in enumerate(taken_arr) if x == 1]
+    options = [take for play, take in legal if play == DECK[played_idx]]
+    return DECK[played_idx], options[taken_idx]
 
 
 class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
@@ -67,10 +68,14 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.first_at_hand = random.choice(('p1', 'p2'))
         self.last_winner = self.first_at_hand
 
+        # `played` = deck index of the card I want to play
+        # `taken` = index of the legal taking combination I want
+        # Theoretical maximum for `taken`: all cards 1-9 on the table
+        # and playing a 10: 1698 possible combinations
         self._action_spaces = {
             agent: spaces.Dict({
                 'played': spaces.Discrete(len(DECK)),
-                'taken': spaces.MultiBinary(len(DECK))
+                'taken': spaces.Discrete(1698)
             })
             for agent in self.possible_agents
         }
@@ -196,12 +201,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self._cumulative_rewards[agent] = 0.0
         self._clear_rewards()
 
-        played_card, taken_cards = cards_from_action(action)
-
         legal = self.hands[agent].scopa_legal_plays(self.table)
-        ok = any(p == played_card and set(t) == set(taken_cards) for p, t in legal)
-        if not ok:
-            raise ValueError(f'Illegal action for {agent}: {played_card}')
+        played_card, taken_cards = cards_from_action(action, legal)
 
         opponent = 'p2' if agent == 'p1' else 'p1'
         self.hands[agent].play_card(played_card)

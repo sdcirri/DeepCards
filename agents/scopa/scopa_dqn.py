@@ -11,8 +11,8 @@ from torch import optim
 import torch.nn as nn
 import torch
 
+from games.scopa import ScopaHand, sorted_legal_plays
 from games.deck import Card, CARD_INDEX, DECK
-from games.scopa import ScopaHand
 
 from ..agent import AgentId, Cards2PAgent
 from ..dqn import CardNN, plot_losses
@@ -35,17 +35,6 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-def _sorted_legal(hand: ScopaHand, table: list[Card]):
-    legal = hand.scopa_legal_plays(table)
-    return sorted(
-        legal,
-        key=lambda pt: (
-            CARD_INDEX[pt[0]],
-            tuple(sorted(CARD_INDEX[c] for c in pt[1])),
-        ),
-    )
-
-
 def choose_action(
         state: np.ndarray,
         net: CardNN,
@@ -53,8 +42,8 @@ def choose_action(
         device: torch.device,
         hand: ScopaHand,
         table: list[Card],
-) -> tuple[dict[str, int | np.ndarray], int, int]:
-    if not (legal := _sorted_legal(hand, table)):
+) -> tuple[int, int]:
+    if not (legal := hand.scopa_legal_plays(table)):
         raise RuntimeError('No legal move possible')
 
     play_mask = np.zeros(40, dtype=np.int8)
@@ -87,11 +76,7 @@ def choose_action(
         qt[take_mask == 0] = -np.inf
         take_idx = int(qt.argmax())
 
-    taken = np.zeros(40, dtype=np.int8)
-    for card in by_play[play_idx][take_idx]:
-        taken[CARD_INDEX[card]] = 1
-
-    return {'played': play_idx, 'taken': taken}, play_idx, take_idx
+    return play_idx, take_idx
 
 
 def train_step(
@@ -129,9 +114,9 @@ def train_step(
 
         for b in range(next_states.size(0)):
             obs = next_np[b]
-            hand_cards = [DECK[i] for i in range(40) if obs[i] == 1]
-            table_cards = [DECK[i] for i in range(40) if obs[80 + i] == 1]
-            legal = _sorted_legal(ScopaHand(hand_cards), table_cards)
+            hand_cards = tuple(DECK[i] for i in range(40) if obs[i] == 1)
+            table_cards = tuple(DECK[i] for i in range(40) if obs[80 + i] == 1)
+            legal = sorted_legal_plays(hand_cards, table_cards)
             if not legal:
                 continue
 
@@ -205,7 +190,7 @@ def train(
                     continue
 
                 state = env.observe(whoami)
-                action, play_idx, take_idx = choose_action(
+                play_idx, take_idx = choose_action(
                     state,
                     online_net,
                     epsilon,
@@ -213,7 +198,7 @@ def train(
                     env.hands[whoami],
                     env.table
                 )
-                env.step(action)
+                env.step({'played': play_idx, 'taken': take_idx})
                 # Include rewards from our step and intervening opponent steps
                 # (trick points are often assigned when the opponent follows).
                 reward = float(env.rewards[whoami])

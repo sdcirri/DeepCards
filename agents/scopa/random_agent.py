@@ -1,5 +1,3 @@
-import numpy as np
-
 from environments.scopa_env import Scopa2PEnv, AgentId, Action
 from games.deck import CARD_INDEX, DECK
 
@@ -20,8 +18,7 @@ class RandomAgent(Cards2PAgent):
         legal = env.hands[self.whoami].scopa_legal_plays(env.table)
         played, taken_cards = legal[int(self.np_random.integers(len(legal)))]
 
-        take_mask = np.zeros(len(DECK), dtype=np.int8)
-        for card in taken_cards:
-            take_mask[CARD_INDEX[card]] = 1
+        options = [take for play, take in legal if play == played]
+        take_idx = options.index(taken_cards)
 
-        return {'played': CARD_INDEX[played], 'taken': take_mask}
+        return {'played': CARD_INDEX[played], 'taken': take_idx}

@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 from environments.scopa_env import Scopa2PEnv
@@ -61,11 +60,11 @@ class DQNAgent(BaseDQNAgent):
         )
         return DQNAgent(whoami, net)
 
-    def step(self, env: Scopa2PEnv) -> dict[str, int | np.ndarray] | None:
+    def step(self, env: Scopa2PEnv) -> dict[str, int] | None:
         if env.agent_selection != self.whoami:
             return None
 
-        action, _, _ = choose_action(
+        played_idx, taken_idx = choose_action(
                 env.observe(self.whoami),
                 self.net,
                 0,
@@ -73,4 +72,4 @@ class DQNAgent(BaseDQNAgent):
                 env.hands[self.whoami],
                 env.table,
         )
-        return action
+        return {'played': played_idx, 'taken': taken_idx}
