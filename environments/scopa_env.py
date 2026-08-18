@@ -1,6 +1,7 @@
-import random
 from typing import Any, TypeAlias
 from collections import deque
+import numpy as np
+import random
 
 from gymnasium.utils import seeding
 from gymnasium import spaces
@@ -8,28 +9,10 @@ from gymnasium import spaces
 from pettingzoo.utils import wrappers
 from pettingzoo import AECEnv
 
-import numpy as np
-
-from games.deck import DECK, Card
 from games.scopa import ScopaHand
+from games.deck import DECK, Card
 
-from .cards_env import AgentId, BinaryArray
-
-
-Action: TypeAlias = dict[str, int]
-Observation: TypeAlias = BinaryArray
-
-
-def cards_from_action(action: Action, legal: list[tuple[Card, list[Card]]]) -> tuple[Card, list[Card]]:
-    """
-    Resolves an action into a high-level (played, taken) tuple
-    """
-    played_idx, taken_idx = action['played'], action['taken']
-    if not 0 <= played_idx < len(DECK):
-        raise ValueError(f'Invalid action: {action}')
-
-    options = [take for play, take in legal if play == DECK[played_idx]]
-    return DECK[played_idx], options[taken_idx]
+from .cards_env import AgentId, Action, Observation, BinaryArray
 
 
 class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
@@ -68,20 +51,20 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.first_at_hand = random.choice(('p1', 'p2'))
         self.last_winner = self.first_at_hand
 
-        # `played` = deck index of the card I want to play
-        # `taken` = index of the legal taking combination I want
-        # Theoretical maximum for `taken`: all cards 1-9 on the table
-        # and playing a 10: 1698 possible combinations
+        # Index of the "legal" array from scopa_legal_plays, which is sorted
+        #   and only depends on the state
         self._action_spaces = {
-            agent: spaces.Dict({
-                'played': spaces.Discrete(len(DECK)),
-                'taken': spaces.Discrete(1698)
-            })
+            agent: spaces.Discrete(80)
             for agent in self.possible_agents
         }
 
         self._observation_spaces = {
-            agent: spaces.MultiBinary(len(DECK) * self.OBSERVATION_PLANES)
+            agent: spaces.Dict(
+                {
+                    'observation': spaces.MultiBinary(len(DECK) * self.OBSERVATION_PLANES),
+                    'action_mask': spaces.MultiBinary(len(DECK) * 2),
+                }
+            )
             for agent in self.possible_agents
         }
 
@@ -180,13 +163,21 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             count=len(DECK),
         )
 
-        return np.concatenate((
+        observation = np.concatenate((
             hand_encoding,
             seen_encoding,
             table_encoding,
             taken_encoding,
             opponent_taken_encoding
         ))
+
+        legal = self.hands[agent].scopa_legal_plays(self.table)
+        action_mask = np.zeros(len(DECK) * 2, dtype=np.int8)
+        action_mask[:len(legal)] = 1
+        return {
+            'observation': observation,
+            'action_mask': action_mask
+        }
 
     def step(self, action: Action | None) -> None:
         agent = self.agent_selection
@@ -202,7 +193,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self._clear_rewards()
 
         legal = self.hands[agent].scopa_legal_plays(self.table)
-        played_card, taken_cards = cards_from_action(action, legal)
+        played_card, taken_cards = legal[action]
 
         opponent = 'p2' if agent == 'p1' else 'p1'
         self.hands[agent].play_card(played_card)
@@ -263,8 +254,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
                 - opponent_denari_reward
                 - opponent_primiera_reward
         )
-        self.rewards[agent] += delta
-        self.rewards[opponent] -= delta
+        self.rewards[agent], self.rewards[opponent] = delta, -delta
 
         self._update_infos()
         self._accumulate_rewards()

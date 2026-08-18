@@ -2,11 +2,10 @@ import torch
 
 from environments.scopa_env import Scopa2PEnv
 
+from ..dqn import choose_action as choose_action
 from ..dqn import DQNAgent as BaseDQNAgent
 from ..dqn import CardNN as BaseCardNN
-
-from .scopa_dqn import choose_action as choose_action
-from .scopa_dqn import train as dqn_train
+from ..dqn import train as dqn_train
 
 from ..agent import Cards2PAgent, AgentId
 
@@ -60,16 +59,16 @@ class DQNAgent(BaseDQNAgent):
         )
         return DQNAgent(whoami, net)
 
-    def step(self, env: Scopa2PEnv) -> dict[str, int] | None:
+    def step(self, env: Scopa2PEnv) -> int | None:
         if env.agent_selection != self.whoami:
             return None
 
-        played_idx, taken_idx = choose_action(
-                env.observe(self.whoami),
+        obs = env.observe(self.whoami)
+
+        return choose_action(
+                obs['observation'],
+                obs['action_mask'],
                 self.net,
                 0,
-                self.device,
-                env.hands[self.whoami],
-                env.table,
+                self.device
         )
-        return {'played': played_idx, 'taken': taken_idx}
