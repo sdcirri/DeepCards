@@ -1,7 +1,6 @@
-from typing import Any, TypeAlias
 from collections import deque
+from typing import Any
 import numpy as np
-import random
 
 from gymnasium.utils import seeding
 from gymnasium import spaces
@@ -12,7 +11,7 @@ from pettingzoo import AECEnv
 from games.scopa import ScopaHand
 from games.deck import DECK, Card
 
-from .cards_env import AgentId, Action, Observation, BinaryArray
+from .cards_env import AgentId, Action, Observation
 
 
 class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
@@ -32,6 +31,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
     table: list[Card]
     last_winner: AgentId
+    first_at_hand: AgentId
 
     def __init__(self, render_mode: str | None = None) -> None:
         super().__init__()
@@ -42,13 +42,15 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         if not isinstance(self.OBSERVATION_PLANES, int) or self.OBSERVATION_PLANES < 3:
             raise ValueError('OBSERVATION_PLANES must be an int >= 3')
 
+        self.np_random, self.np_random_seed = seeding.np_random(None)
+
         self.render_mode = render_mode
         self.possible_agents: list[AgentId] = ['p1', 'p2']
         self.agent_name_mapping = {
             agent: index
             for index, agent in enumerate(self.possible_agents)
         }
-        self.first_at_hand = random.choice(('p1', 'p2'))
+        self.first_at_hand = self.np_random.choice(self.possible_agents)
         self.last_winner = self.first_at_hand
 
         # Index of the "legal" array from scopa_legal_plays, which is sorted
@@ -67,8 +69,6 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             )
             for agent in self.possible_agents
         }
-
-        self.np_random, self.np_random_seed = seeding.np_random(None)
 
         self.agents: list[AgentId] = []
         self.agent_selection: AgentId = 'p1'
@@ -133,6 +133,9 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
         starting_index = int(self.np_random.integers(0, 2))
         self.agent_selection = self.possible_agents[starting_index]
+        # Who receives stock cards first on redeals — must be seeded.
+        self.first_at_hand = self.possible_agents[int(self.np_random.integers(0, 2))]
+        self.last_winner = self.first_at_hand
         self._update_infos()
 
     def observe(self, agent: AgentId) -> Observation:
