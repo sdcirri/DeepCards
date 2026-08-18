@@ -33,6 +33,5 @@ def first_card_wins(card1: Card, card2: Card, briscola: Suit) -> bool:
             return True
         if card1.suit != briscola:
             return False
-        return True
 
     return CARD_POWER[card1.number] > CARD_POWER[card2.number]
