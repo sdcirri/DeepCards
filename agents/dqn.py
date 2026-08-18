@@ -167,7 +167,6 @@ def train(
 
     for i, opponent in enumerate(training_opponents):
         epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
-        replay_buffer.clear()
 
         for episode in range(episodes_per_opponent[i]):
             env.reset()
