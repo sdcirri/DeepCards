@@ -68,10 +68,9 @@ def choose_action(
     state_t = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
     with torch.no_grad():
-        q_values = net(state_t).cpu().numpy().flatten()
-
-    q_values[mask == 0] = -np.inf
-    return int(q_values.argmax())
+        q = net(state_t).squeeze(0)
+        q[mask == 0] = -float('inf')
+        return int(q.argmax().item())
 
 
 def train_step(
@@ -213,9 +212,9 @@ def train(
                         gamma,
                         device,
                     )
-                    if verbose:
+                    if verbose and total_steps % 1000 == 0:
                         print(f'Episode: {episode}, Steps: {total_steps}, Loss: {loss}')
-                    losses.append(loss)
+                        losses.append(loss)
 
                 if total_steps % target_update_frequency == 0:
                     target_net.load_state_dict(online_net.state_dict())
