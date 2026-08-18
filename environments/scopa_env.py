@@ -44,7 +44,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
     }
 
     ILLEGAL_PLAY_PENALTY = -1000.0
-    OBSERVATION_PLANES = 3
+    OBSERVATION_PLANES = 5
 
     table: list[Card]
     last_winner: AgentId
@@ -164,8 +164,24 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             dtype=np.int8,
             count=len(DECK),
         )
+        taken_encoding = np.fromiter(
+            (card in hand.taken_cards for card in DECK),
+            dtype=np.int8,
+            count=len(DECK),
+        )
+        opponent_taken_encoding = np.fromiter(
+            (card in hand.opponent_taken_cards for card in DECK),
+            dtype=np.int8,
+            count=len(DECK),
+        )
 
-        return np.concatenate((hand_encoding, seen_encoding, table_encoding))
+        return np.concatenate((
+            hand_encoding,
+            seen_encoding,
+            table_encoding,
+            taken_encoding,
+            opponent_taken_encoding
+        ))
 
     def step(self, action: Action | None) -> None:
         agent = self.agent_selection
@@ -193,13 +209,15 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
         score, opponent_score = self.hands[agent].score, self.hands[opponent].score
         old_scope, old_settebello = score.scope, score.settebello
-        old_carte, old_denari = score.carte, score.denari
+        old_carte, old_denari, old_primiera = score.carte, score.denari, score.primiera
         old_opponent_scope, old_opponent_settebello = opponent_score.scope, opponent_score.settebello
         old_opponent_carte, old_opponent_denari = opponent_score.carte, opponent_score.denari
+        old_opponent_primiera = opponent_score.primiera
 
         if len(taken_cards) == 0:
             self.table.append(played_card)
         else:
+            self.hands[opponent].see_opponent_taken([played_card] + taken_cards)
             for card in taken_cards:
                 self.table.remove(card)
             if len(self.table) == 0 and not self._game_finished():
@@ -216,8 +234,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             self._deads_step_first()
         else:
             self.agent_selection = opponent
-            # After both players have spent their 3 cards, deal 3 more each
-            # from the stock (nothing new to the table).
+            # After both players have spent their 3 cards,
+            #   deal 3 more each from the stock
             if self._hands_empty() and self.pile:
                 self._redeal_hands()
 
@@ -225,19 +243,24 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         settebello_reward = score.settebello - old_settebello
         carte_reward = (score.carte - old_carte) / 40
         denari_reward = (score.denari - old_denari) / 10
+        primiera_reward = (score.primiera - old_primiera) / 139
         opponent_scopa_reward = opponent_score.scope - old_opponent_scope
         opponent_settebello_reward = opponent_score.settebello - old_opponent_settebello
         opponent_carte_reward = (opponent_score.carte - old_opponent_carte) / 40
         opponent_denari_reward = (opponent_score.denari - old_opponent_denari) / 10
+        opponent_primiera_reward = (opponent_score.primiera - old_opponent_primiera) / 139
+
         delta = (
                 + scopa_reward
                 + settebello_reward
                 + carte_reward
                 + denari_reward
+                + primiera_reward
                 - opponent_scopa_reward
                 - opponent_settebello_reward
                 - opponent_carte_reward
                 - opponent_denari_reward
+                - opponent_primiera_reward
         )
         self.rewards[agent] += delta
         self.rewards[opponent] -= delta
@@ -261,6 +284,11 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         if p1_score.denari > p2_score.denari:
             self.scores['p1'] += 1
         elif p2_score.denari > p1_score.denari:
+            self.scores['p2'] += 1
+
+        if p1_score.primiera > p2_score.primiera:
+            self.scores['p1'] += 1
+        elif p2_score.primiera > p1_score.primiera:
             self.scores['p2'] += 1
 
     def _redeal_hands(self) -> None:

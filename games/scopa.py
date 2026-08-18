@@ -39,6 +39,9 @@ class ScopaScope:
 @dataclass(slots=True)
 class ScopaHand(Hand):
     PRIMIERA_BY_NUM = [16, 12, 13, 14, 15, 18, 21, 10, 10, 10]
+
+    taken_cards: list[Card] = field(default_factory=list)
+    opponent_taken_cards: list[Card] = field(default_factory=list)
     score: ScopaScope = field(default_factory=ScopaScope)
 
     def scopa_legal_plays(self, table: list[Card]) -> list[tuple[Card, list[Card]]]:
@@ -63,11 +66,15 @@ class ScopaHand(Hand):
                     ret += [(card, take) for take in takes]
         return ret
 
+    def see_opponent_taken(self, cards: list[Card]) -> None:
+        self.opponent_taken_cards.extend(cards)
+
     def scopa(self) -> None:
         self.score.scope += 1
 
     def update_score(self, taken: list[Card]) -> None:
         for card in taken:
+            self.taken_cards.append(card)
             self.score.carte += 1
 
             if card == Card(Suit.DENARI, 7):

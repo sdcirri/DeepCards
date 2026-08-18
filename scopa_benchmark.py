@@ -4,6 +4,7 @@ from sys import argv
 
 import torch
 
+from agents.scopa.dqn_agent import DQNAgent, CardNN, train
 from agents.scopa.greedy_agent import GreedyAgent
 from agents.scopa.random_agent import RandomAgent
 
@@ -14,14 +15,14 @@ from agents.agent import Cards2PAgent
 
 AgentFactory = Callable[[AgentId], Cards2PAgent]
 
-'''
+
 MODEL_PATH = Path('scopa_dqn_net.pt')
 
 print('Initializing agents ...')
 
 if MODEL_PATH.exists():
     print(f'Loading model from {MODEL_PATH}')
-    dqn_net = CardNN(40).to(DQNAgent.device)
+    dqn_net = CardNN(80).to(DQNAgent.device)
     dqn_net.load_state_dict(torch.load(MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
     dqn_net.eval()
 else:
@@ -29,19 +30,20 @@ else:
     dqn_net = train(
         env_factory(render_mode=None),
         'p1',
-        40,
+        80,
         DQNAgent.device,
-        [RandomAgent('p2'), GreedyAgent('p2'), PointsAwareGreedyAgent('p2')],
-        [2000, 2000, 15000],
-        False
+        [RandomAgent('p2'), GreedyAgent('p2')],
+        [2000, 20000],
+        True
     )
     torch.save(dqn_net.state_dict(), MODEL_PATH)
     print(f'Saved model to {MODEL_PATH}')
-'''
+
 
 agent_factories: list[tuple[str, AgentFactory]] = [
     ('Random', lambda whoami: RandomAgent(whoami)),
     ('Greedy', lambda whoami: GreedyAgent(whoami)),
+    ('DQN', lambda whoami: DQNAgent(whoami, dqn_net)),
 ]
 
 EPISODES = 10_000
