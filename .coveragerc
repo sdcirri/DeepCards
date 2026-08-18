@@ -1,0 +1,19 @@
+[run]
+source = games,environments
+omit =
+    */piacentine_viz/*
+    */environments/piacentine_viz/*
+    environments/piacentine_viz/**
+    **/piacentine_viz/**
+    */__init__.py
+
+[report]
+show_missing = true
+skip_empty = true
+fail_under = 100
+omit =
+    */piacentine_viz/*
+    */environments/piacentine_viz/*
+    environments/piacentine_viz/**
+    **/piacentine_viz/**
+    */__init__.py
