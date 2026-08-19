@@ -5,7 +5,10 @@ from sys import argv
 import torch
 
 from agents.scopa.value_aware_greedy_agent import ValueAwareGreedyAgent
-from agents.scopa.dqn_agent import DQNAgent, CardNN, train
+from agents.scopa.greedy_take_dqn_agent import GreedyTakeDQNAgent
+from agents.scopa.rl_take_dqn_agent import RLTakeDQNAgent
+from agents.scopa.dqn_agent import DQNAgent, PlayCardNN
+from agents.scopa.scopa_dqn import TakeCardNN, train
 from agents.scopa.greedy_agent import GreedyAgent
 from agents.scopa.random_agent import RandomAgent
 
@@ -17,35 +20,39 @@ from agents.agent import Cards2PAgent
 AgentFactory = Callable[[AgentId], Cards2PAgent]
 
 
-MODEL_PATH = Path('scopa_dqn_net.pt')
+PLAY_MODEL_PATH, TAKE_MODEL_PATH = Path('scopa_play_dqn_net.pt'), Path('scopa_take_dqn_net.pt')
 
 print('Initializing agents ...')
 
-if MODEL_PATH.exists():
-    print(f'Loading model from {MODEL_PATH}')
-    dqn_net = CardNN(80).to(DQNAgent.device)
-    dqn_net.load_state_dict(torch.load(MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
-    dqn_net.eval()
+if PLAY_MODEL_PATH.exists() and TAKE_MODEL_PATH.exists():
+    print(f'Loading models from {PLAY_MODEL_PATH} and {TAKE_MODEL_PATH}')
+    play_dqn_net, take_dqn_net = PlayCardNN(40).to(DQNAgent.device), TakeCardNN(40, 40).to(DQNAgent.device)
+    play_dqn_net.load_state_dict(torch.load(PLAY_MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
+    take_dqn_net.load_state_dict(torch.load(TAKE_MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
+    play_dqn_net.eval()
 else:
-    print('No saved model found, training ...')
-    dqn_net = train(
+    print('No saved models found, training ...')
+    play_dqn_net, take_dqn_net = train(
         env_factory(render_mode=None),
         'p1',
-        80,
+        40,
+        40,
         DQNAgent.device,
         [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
         [1000, 5000, 25000],
         True
     )
-    torch.save(dqn_net.state_dict(), MODEL_PATH)
-    print(f'Saved model to {MODEL_PATH}')
+    torch.save(play_dqn_net.state_dict(), PLAY_MODEL_PATH)
+    torch.save(take_dqn_net.state_dict(), TAKE_MODEL_PATH)
+    print(f'Saved models to {PLAY_MODEL_PATH} and {TAKE_MODEL_PATH}')
 
 
 agent_factories: list[tuple[str, AgentFactory]] = [
     ('Random', lambda whoami: RandomAgent(whoami)),
     ('Greedy', lambda whoami: GreedyAgent(whoami)),
     ('Value-Aware Greedy', lambda whoami: ValueAwareGreedyAgent(whoami)),
-    ('DQN', lambda whoami: DQNAgent(whoami, dqn_net)),
+    ('DQN + Greedy Take', lambda whoami: GreedyTakeDQNAgent(whoami, play_dqn_net)),
+    ('DQN + RL Take', lambda whoami: RLTakeDQNAgent(whoami, play_dqn_net, take_dqn_net)),
 ]
 
 EPISODES = 10_000

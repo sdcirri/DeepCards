@@ -4,6 +4,9 @@ from functools import cache
 from .deck import Suit, Card, Hand, CARD_INDEX
 
 
+PRIMIERA_BY_NUM = (16, 12, 13, 14, 15, 18, 21, 10, 10, 10)
+
+
 def find_takes(card: Card, table: tuple[Card]) -> list[list[Card]]:
     """
     Finds all possible combinations of cards
@@ -68,6 +71,37 @@ def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card
     )
 
 
+def card_value(card: Card) -> float:
+    """
+    Estimation of card advantage when taken
+    :param card: card to evaluate
+    :return: the card value
+    """
+    # Carte and primiera
+    value = 1 / 40 + PRIMIERA_BY_NUM[card.number-1] / 139
+    # Settebello
+    if card == Card(Suit.DENARI, 7):
+        value += 1
+    # Denari (also applies to Settebello)
+    if card.suit == Suit.DENARI:
+        value += 1 / 10
+    return value
+
+
+def play_value(play: tuple[Card, list[Card]], table: list[Card]) -> float:
+    if len(play[1]) == 0:
+        # Leaving a card on the table is potentially lost value
+        return -card_value(play[0])
+
+    value = card_value(play[0]) + sum(card_value(c) for c in play[1])
+
+    # Scopa reward
+    if len(play[1]) == len(table):
+        value += 1
+
+    return value
+
+
 @dataclass
 class ScopaScope:
     scope: int = 0
@@ -79,8 +113,6 @@ class ScopaScope:
 
 @dataclass(slots=True)
 class ScopaHand(Hand):
-    PRIMIERA_BY_NUM = [16, 12, 13, 14, 15, 18, 21, 10, 10, 10]
-
     taken_cards: list[Card] = field(default_factory=list)
     opponent_taken_cards: list[Card] = field(default_factory=list)
     score: ScopaScope = field(default_factory=ScopaScope)
@@ -108,7 +140,7 @@ class ScopaHand(Hand):
             if card == Card(Suit.DENARI, 7):
                 self.score.settebello = 1
 
-            self.score.primiera += self.PRIMIERA_BY_NUM[card.number-1]
+            self.score.primiera += PRIMIERA_BY_NUM[card.number-1]
 
             if card.suit == Suit.DENARI:
                 self.score.denari += 1

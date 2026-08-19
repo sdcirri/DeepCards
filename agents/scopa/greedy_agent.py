@@ -1,4 +1,5 @@
 from environments.scopa_env import Scopa2PEnv, AgentId, Action
+from games.deck import CARD_INDEX
 
 from ..agent import Cards2PAgent
 
@@ -16,5 +17,6 @@ class GreedyAgent(Cards2PAgent):
 
         legal = env.hands[self.whoami].scopa_legal_plays(env.table)
         played = max(legal, key=lambda pt: len(pt[1]))
+        options = [opt[1] for opt in legal if opt[0] == played[0]]
 
-        return legal.index(played)
+        return CARD_INDEX[played[0]], options.index(played[1])

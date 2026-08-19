@@ -1,5 +1,7 @@
+from typing import Any, TypeAlias
 from collections import deque
-from typing import Any
+
+from numpy.typing import NDArray
 import numpy as np
 
 from gymnasium.utils import seeding
@@ -11,7 +13,11 @@ from pettingzoo import AECEnv
 from games.scopa import ScopaHand
 from games.deck import DECK, Card
 
-from .cards_env import AgentId, Action, Observation
+from .cards_env import AgentId, Observation
+
+
+Action: TypeAlias = tuple[int, int]
+BinaryArray: TypeAlias = NDArray[np.int8]
 
 
 class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
@@ -56,7 +62,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         # Index of the "legal" array from scopa_legal_plays, which is sorted
         #   and only depends on the state
         self._action_spaces = {
-            agent: spaces.Discrete(80)
+            agent: spaces.Tuple((
+                    spaces.Discrete(40),
+                    spaces.Discrete(10)     # Arbitrary, in practice never exceeds 3 or 4
+                ))
             for agent in self.possible_agents
         }
 
@@ -64,7 +73,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             agent: spaces.Dict(
                 {
                     'observation': spaces.MultiBinary(len(DECK) * self.OBSERVATION_PLANES),
-                    'action_mask': spaces.MultiBinary(len(DECK) * 2),
+                    'play_mask': spaces.MultiBinary(len(DECK)),
+                    'take_mask': spaces.MultiBinary(len(DECK))
                 }
             )
             for agent in self.possible_agents
@@ -174,12 +184,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             opponent_taken_encoding
         ))
 
-        legal = self.hands[agent].scopa_legal_plays(self.table)
-        action_mask = np.zeros(len(DECK) * 2, dtype=np.int8)
-        action_mask[:len(legal)] = 1
         return {
             'observation': observation,
-            'action_mask': action_mask
+            'play_mask': hand_encoding,
+            'take_mask': table_encoding
         }
 
     def step(self, action: Action | None) -> None:
@@ -195,8 +203,9 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self._cumulative_rewards[agent] = 0.0
         self._clear_rewards()
 
-        legal = self.hands[agent].scopa_legal_plays(self.table)
-        played_card, taken_cards = legal[action]
+        played_card = DECK[action[0]]
+        options = [opt[1] for opt in self.hands[agent].scopa_legal_plays(self.table) if opt[0] == played_card]
+        taken_cards = options[action[1]]
 
         opponent = 'p2' if agent == 'p1' else 'p1'
         self.hands[agent].play_card(played_card)

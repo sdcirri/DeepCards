@@ -1,4 +1,5 @@
 from environments.scopa_env import Scopa2PEnv, AgentId, Action
+from games.deck import CARD_INDEX
 
 from ..agent import Cards2PAgent
 
@@ -15,4 +16,8 @@ class RandomAgent(Cards2PAgent):
             return None
 
         legal = env.hands[self.whoami].scopa_legal_plays(env.table)
-        return self.np_random.integers(0, len(legal))
+        play = self.np_random.choice(env.hands[self.whoami].cards)
+        options = [opt[1] for opt in legal if opt[0] == play]
+        take = self.np_random.integers(0, len(options))
+
+        return CARD_INDEX[play], take

@@ -26,7 +26,7 @@ def train(
         episodes_per_opponent: list[int],
         verbose: bool = True,
 ) -> CardNN:
-    return dqn_train(  # type: ignore[return-value]
+    return dqn_train(
         env,
         whoami,
         actions,

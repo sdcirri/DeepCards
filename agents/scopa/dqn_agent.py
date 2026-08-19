@@ -1,74 +1,47 @@
-import torch
+from abc import abstractmethod, ABC
 
-from environments.scopa_env import Scopa2PEnv
+from environments.scopa_env import Scopa2PEnv, Action
+from games.deck import CARD_INDEX, Card
 
-from ..dqn import choose_action as choose_action
+from .scopa_dqn import PlayCardNN, choose_play
 from ..dqn import DQNAgent as BaseDQNAgent
-from ..dqn import CardNN as BaseCardNN
-from ..dqn import train as dqn_train
 
-from ..agent import Cards2PAgent, AgentId
+from ..agent import AgentId
 
 
-OBS_DIM = 200
+class DQNAgent(BaseDQNAgent, ABC):
+    """
+    Base DQN agent for Scopa
+    """
 
+    def __init__(self, name: str, whoami: AgentId, net: PlayCardNN) -> None:
+        super().__init__(whoami, net)
+        self.name = name
 
-class CardNN(BaseCardNN):
-    def __init__(self, actions: int) -> None:
-        super().__init__(OBS_DIM, actions)
+    @abstractmethod
+    def take_strategy(self, play: int, env: Scopa2PEnv, legal: list[tuple[Card, list[Card]]]) -> int:
+        ...
 
-
-def train(
-        env: Scopa2PEnv,
-        whoami: AgentId,
-        actions: int,
-        device: torch.device,
-        training_opponents: list[Cards2PAgent],
-        episodes_per_opponent: list[int],
-        verbose: bool = True,
-) -> CardNN:
-    return dqn_train(
-        env,
-        whoami,
-        actions,
-        OBS_DIM,
-        device,
-        training_opponents,
-        episodes_per_opponent,
-        verbose,
-    )
-
-
-class DQNAgent(BaseDQNAgent):
-    @staticmethod
-    def train(
-            whoami: AgentId,
-            training_env: Scopa2PEnv,
-            training_opponents: list[Cards2PAgent],
-            episodes_per_opponent: list[int],
-            verbose_training: bool = False,
-    ) -> 'DQNAgent':
-        net = train(
-                training_env,
-                whoami,
-                80,         # card to play + cards to take
-                DQNAgent.device,
-                training_opponents,
-                episodes_per_opponent,
-                verbose_training,
-        )
-        return DQNAgent(whoami, net)
-
-    def step(self, env: Scopa2PEnv) -> int | None:
+    def step(self, env: Scopa2PEnv) -> Action | None:
         if env.agent_selection != self.whoami:
             return None
 
         obs = env.observe(self.whoami)
 
-        return choose_action(
+        play = choose_play(
                 obs['observation'],
-                obs['action_mask'],
+                obs['play_mask'],
                 self.net,
                 0,
                 self.device
         )
+
+        legal = env.hands[self.whoami].scopa_legal_plays(env.table)
+        take_opts = [
+            opt for opt in legal
+            if CARD_INDEX[opt[0]] == play
+        ]
+        if len(take_opts) <= 1:
+            return play, 0
+
+        return play, self.take_strategy(play, env, legal)
