@@ -85,7 +85,8 @@ class Tressette2PEnv(Cards2PEnv):
 
     def _extra_observations(self, agent: AgentId) -> list[float]:
         opponent = 'p1' if agent == 'p2' else 'p2'
-        return [len(self.pile) / 40, self.scores[agent] / 35, self.scores[opponent] / 35]
+        # 20 cards have already been dealt
+        return [len(self.pile) / 20, self.scores[agent] / 35, self.scores[opponent] / 35]
 
     def _score_info(self, agent: AgentId, opponent: AgentId) -> dict[str, Any]:
         return {

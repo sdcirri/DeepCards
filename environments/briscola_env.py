@@ -59,14 +59,14 @@ class Briscola2PEnv(Cards2PEnv):
     def close(self) -> None:
         if self.render_mode == 'human':
             from environments.piacentine_viz import close_live_window
-
             close_live_window()
         return super().close()
 
 
     def _extra_observations(self, agent: AgentId) -> list[float]:
         opponent = 'p1' if agent == 'p2' else 'p2'
-        return [len(self.pile), self.scores[agent] / 60, self.scores[opponent] / 60]
+        # 6 cards have already been dealt
+        return [len(self.pile) / 34, self.scores[agent] / 60, self.scores[opponent] / 60]
 
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:

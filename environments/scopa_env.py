@@ -182,7 +182,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         opp = 'p1' if agent == 'p2' else 'p2'
         my_score, opp_score = self.hands[agent].score, self.hands[opp].score
         extra_obs = np.fromiter((
-            len(self.pile),
+            len(self.pile) / 30,        # 6 cards have been dealt + 4 put on the table
             my_score.carte / 40, opp_score.carte / 40,
             my_score.denari / 10, opp_score.denari / 10,
             my_score.primiera / 139, opp_score.primiera / 139,
