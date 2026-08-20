@@ -112,7 +112,8 @@ def train(
     play_losses, take_losses = [], []
 
     for i, opponent in enumerate(training_opponents):
-        epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
+        play_epsilon, play_epsilon_min, play_epsilon_decay = 1.0, 0.05, 0.995
+        take_epsilon, take_epsilon_min, take_epsilon_decay = 1.0, 0.05, 0.995
 
         for episode in range(episodes_per_opponent[i]):
             env.reset()
@@ -125,7 +126,7 @@ def train(
                 obs = env.observe(whoami)
                 state, play_mask, take_mask = obs['observation'], obs['play_mask'], obs['take_mask']
 
-                play = choose_play(state, play_mask, online_play_net, epsilon, device)
+                play = choose_play(state, play_mask, online_play_net, play_epsilon, device)
                 play_t = np.zeros(play_actions, dtype=np.int8)
                 play_t[play] = 1
 
@@ -141,7 +142,7 @@ def train(
                         take_state,
                         take_mask,
                         take_net,
-                        epsilon,
+                        take_epsilon,
                         device,
                         [opt[1] for opt in take_opts]
                     )
@@ -202,7 +203,8 @@ def train(
                 if total_steps % target_update_frequency == 0:
                     target_play_net.load_state_dict(online_play_net.state_dict())
 
-            epsilon = max(epsilon_min, epsilon * epsilon_decay)
+            play_epsilon = max(play_epsilon_min, play_epsilon * play_epsilon_decay)
+            take_epsilon = max(take_epsilon_min, take_epsilon * take_epsilon_decay)
 
     if verbose:
         print(f'Training done\n\tPlay avg loss: {sum(play_losses) / len(play_losses) if play_losses else float("nan")}')
