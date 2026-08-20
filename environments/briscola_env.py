@@ -23,6 +23,7 @@ class Briscola2PEnv(Cards2PEnv):
         'is_parallelizable': False,
     }
     OBSERVATION_PLANES = 4
+    EXTRA_OBSERVATIONS = 3
     MAX_HAND_POINTS = 22  # ace (11) + 3 (10), plus slack; scales rewards to ~[-1, 1]
 
     def __init__(self, render_mode: str | None = None) -> None:
@@ -61,6 +62,12 @@ class Briscola2PEnv(Cards2PEnv):
 
             close_live_window()
         return super().close()
+
+
+    def _extra_observations(self, agent: AgentId) -> list[float]:
+        opponent = 'p1' if agent == 'p2' else 'p2'
+        return [len(self.pile), self.scores[agent] / 60, self.scores[opponent] / 60]
+
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
         del agent

@@ -1,6 +1,7 @@
 import torch
 
 from environments.tressette_env import AgentId, Tressette2PEnv
+from games.deck import DECK
 
 from ..dqn import choose_action as choose_action
 from ..dqn import DQNAgent as BaseDQNAgent
@@ -9,7 +10,7 @@ from ..dqn import train as dqn_train
 from ..agent import Cards2PAgent
 
 
-OBS_DIM = 160
+OBS_DIM = Tressette2PEnv.OBSERVATION_PLANES * len(DECK) + Tressette2PEnv.EXTRA_OBSERVATIONS
 
 
 class CardNN(BaseCardNN):
@@ -26,15 +27,15 @@ def train(
         episodes_per_opponent: list[int],
         verbose: bool = True,
 ) -> CardNN:
-    return dqn_train(  # type: ignore[return-value]
-        env,
-        whoami,
-        actions,
-        OBS_DIM,
-        device,
-        training_opponents,
-        episodes_per_opponent,
-        verbose,
+    return dqn_train(
+            env,
+            whoami,
+            actions,
+            OBS_DIM,
+            device,
+            training_opponents,
+            episodes_per_opponent,
+            verbose,
     )
 
 

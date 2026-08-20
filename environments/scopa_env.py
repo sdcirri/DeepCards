@@ -1,7 +1,6 @@
 from typing import Any, TypeAlias
 from collections import deque
 
-from numpy.typing import NDArray
 import numpy as np
 
 from gymnasium.utils import seeding
@@ -17,7 +16,6 @@ from .cards_env import AgentId, Observation
 
 
 Action: TypeAlias = tuple[int, int]
-BinaryArray: TypeAlias = NDArray[np.int8]
 
 
 class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
@@ -34,6 +32,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
     ILLEGAL_PLAY_PENALTY = -1000.0
     OBSERVATION_PLANES = 5
+    EXTRA_OBSERVATIONS = 9
 
     table: list[Card]
     last_winner: AgentId
@@ -63,7 +62,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         #   and only depends on the state
         self._action_spaces = {
             agent: spaces.Tuple((
-                    spaces.Discrete(40),
+                    spaces.Discrete(len(DECK)),
                     spaces.Discrete(10)     # Arbitrary, in practice never exceeds 3 or 4
                 ))
             for agent in self.possible_agents
@@ -72,7 +71,11 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self._observation_spaces = {
             agent: spaces.Dict(
                 {
-                    'observation': spaces.MultiBinary(len(DECK) * self.OBSERVATION_PLANES),
+                    'observation': spaces.Box(
+                        low=0.0, high=1.0,
+                        shape=(len(DECK) * self.OBSERVATION_PLANES + self.EXTRA_OBSERVATIONS,),
+                        dtype=np.float32
+                    ),
                     'play_mask': spaces.MultiBinary(len(DECK)),
                     'take_mask': spaces.MultiBinary(len(DECK))
                 }
@@ -152,36 +155,47 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         hand = self.hands[agent]
         hand_encoding = np.fromiter(
             (card in hand.cards for card in DECK),
-            dtype=np.int8,
+            dtype=np.float32,
             count=len(DECK),
         )
         seen_encoding = np.fromiter(
             (card in hand.seen for card in DECK),
-            dtype=np.int8,
+            dtype=np.float32,
             count=len(DECK),
         )
         table_encoding = np.fromiter(
             (card in self.table for card in DECK),
-            dtype=np.int8,
+            dtype=np.float32,
             count=len(DECK),
         )
         taken_encoding = np.fromiter(
             (card in hand.taken_cards for card in DECK),
-            dtype=np.int8,
+            dtype=np.float32,
             count=len(DECK),
         )
         opponent_taken_encoding = np.fromiter(
             (card in hand.opponent_taken_cards for card in DECK),
-            dtype=np.int8,
+            dtype=np.float32,
             count=len(DECK),
         )
+
+        opp = 'p1' if agent == 'p2' else 'p2'
+        my_score, opp_score = self.hands[agent].score, self.hands[opp].score
+        extra_obs = np.fromiter((
+            len(self.pile),
+            my_score.carte / 40, opp_score.carte / 40,
+            my_score.denari / 10, opp_score.denari / 10,
+            my_score.primiera / 139, opp_score.primiera / 139,
+            my_score.scope, opp_score.scope
+        ), dtype=np.float32)
 
         observation = np.concatenate((
             hand_encoding,
             seen_encoding,
             table_encoding,
             taken_encoding,
-            opponent_taken_encoding
+            opponent_taken_encoding,
+            extra_obs
         ))
 
         return {

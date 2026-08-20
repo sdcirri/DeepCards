@@ -4,8 +4,7 @@ import random
 from torch import optim, nn
 import torch
 
-from environments.scopa_env import Scopa2PEnv
-from environments.cards_env import AgentId
+from environments.scopa_env import Scopa2PEnv, AgentId
 from games.deck import CARD_INDEX, Card, DECK
 
 from ..dqn import (
@@ -19,7 +18,7 @@ from ..dqn import (
 from ..agent import Cards2PAgent
 
 
-OBS_DIM = 200
+OBS_DIM = Scopa2PEnv.OBSERVATION_PLANES * len(DECK) + Scopa2PEnv.EXTRA_OBSERVATIONS
 
 
 class PlayCardNN(CardNN):

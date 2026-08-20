@@ -1,6 +1,7 @@
 import torch
 
 from environments.briscola_env import AgentId, Briscola2PEnv
+from games.deck import DECK
 
 from ..dqn import choose_action as choose_action
 from ..dqn import DQNAgent as BaseDQNAgent
@@ -9,7 +10,7 @@ from ..dqn import train as dqn_train
 from ..agent import Cards2PAgent
 
 
-OBS_DIM = 160
+OBS_DIM = Briscola2PEnv.OBSERVATION_PLANES * len(DECK) + Briscola2PEnv.EXTRA_OBSERVATIONS
 
 
 class CardNN(BaseCardNN):

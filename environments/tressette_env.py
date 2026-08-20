@@ -23,6 +23,7 @@ class Tressette2PEnv(Cards2PEnv):
         'is_parallelizable': False,
     }
     OBSERVATION_PLANES = 4
+    EXTRA_OBSERVATIONS = 3
     MAX_HAND_POINTS = 6  # two aces = 6 thirds; scales rewards to ~[-1, 1]
 
     def _deal(self, shuffled_cards: list[Card]) -> None:
@@ -81,6 +82,10 @@ class Tressette2PEnv(Cards2PEnv):
             count=len(DECK),
         )
         return [opponent_hand_encoding]
+
+    def _extra_observations(self, agent: AgentId) -> list[float]:
+        opponent = 'p1' if agent == 'p2' else 'p2'
+        return [len(self.pile) / 40, self.scores[agent] / 35, self.scores[opponent] / 35]
 
     def _score_info(self, agent: AgentId, opponent: AgentId) -> dict[str, Any]:
         return {

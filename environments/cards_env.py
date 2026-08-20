@@ -18,7 +18,7 @@ from games.deck import DECK, Card, CARD_INDEX, Hand
 AgentId: TypeAlias = Literal['p1', 'p2']
 Action: TypeAlias = int | np.integer[Any]
 BinaryArray: TypeAlias = NDArray[np.int8]
-Observation: TypeAlias = dict[str, BinaryArray]
+Observation: TypeAlias = dict[str, BinaryArray | np.ndarray]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +45,8 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
     ILLEGAL_PLAY_PENALTY = -1000.0
     OBSERVATION_PLANES: int
+    EXTRA_OBSERVATIONS: int
+
     # Max points (or thirds) in a single trick; used to scale RL rewards into ~[-1, 1].
     MAX_HAND_POINTS: int
 
@@ -73,12 +75,14 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
         }
 
         self._observation_spaces = {
-            agent: spaces.Dict(
-                {
-                    'observation': spaces.MultiBinary(len(DECK) * self.OBSERVATION_PLANES),
+            agent: spaces.Dict({
+                    'observation': spaces.Box(
+                        low=0.0, high=1.0,
+                        shape=(len(DECK) * self.OBSERVATION_PLANES + self.EXTRA_OBSERVATIONS,),
+                        dtype=np.float32
+                    ),
                     'action_mask': spaces.MultiBinary(len(DECK)),
-                }
-            )
+                })
             for agent in self.possible_agents
         }
 
@@ -156,6 +160,7 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
         planes = [hand_encoding, seen_encoding, trick_encoding]
         planes.extend(self._extra_observation_planes(agent))
+        planes.append(self._extra_observations(agent))
         observation = np.concatenate(planes)
 
         return {
@@ -296,6 +301,10 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
             }
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
+        del agent
+        return []
+
+    def _extra_observations(self, agent: AgentId) -> list[float]:
         del agent
         return []
 
