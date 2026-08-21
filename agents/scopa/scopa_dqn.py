@@ -117,6 +117,7 @@ def train(
 
         for episode in range(episodes_per_opponent[i]):
             env.reset()
+            take_invoked = False
 
             while whoami in env.agents and not (env.terminations[whoami] or env.truncations[whoami]):
                 if env.agent_selection != whoami:
@@ -174,6 +175,7 @@ def train(
                     for c in capture:
                         mask[CARD_INDEX[c]] = 1.0
                     take_buffer.add(take_state, mask, reward, take_next_state, next_take_mask, True)
+                    take_invoked = True
                 total_steps += 1
 
                 play_loss, take_loss = 0, 0
@@ -195,7 +197,6 @@ def train(
                         batch_size,
                         device,
                     )
-                    take_epsilon = max(take_epsilon_min, take_epsilon * take_epsilon_decay)
                 if verbose and total_steps % 1000 == 0:
                     print(f'Episode: {episode}, Steps: {total_steps}, Losses: {play_loss=}, {take_loss=}')
                     play_losses.append(play_loss)
@@ -205,6 +206,8 @@ def train(
                     target_play_net.load_state_dict(online_play_net.state_dict())
 
             play_epsilon = max(play_epsilon_min, play_epsilon * play_epsilon_decay)
+            if take_invoked:
+                take_epsilon = max(take_epsilon_min, take_epsilon * take_epsilon_decay)
 
     if verbose:
         print(f'Training done\n\tPlay avg loss: {sum(play_losses) / len(play_losses) if play_losses else float("nan")}')
