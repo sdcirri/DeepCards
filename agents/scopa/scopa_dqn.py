@@ -195,6 +195,7 @@ def train(
                         batch_size,
                         device,
                     )
+                    take_epsilon = max(take_epsilon_min, take_epsilon * take_epsilon_decay)
                 if verbose and total_steps % 1000 == 0:
                     print(f'Episode: {episode}, Steps: {total_steps}, Losses: {play_loss=}, {take_loss=}')
                     play_losses.append(play_loss)
@@ -204,7 +205,6 @@ def train(
                     target_play_net.load_state_dict(online_play_net.state_dict())
 
             play_epsilon = max(play_epsilon_min, play_epsilon * play_epsilon_decay)
-            take_epsilon = max(take_epsilon_min, take_epsilon * take_epsilon_decay)
 
     if verbose:
         print(f'Training done\n\tPlay avg loss: {sum(play_losses) / len(play_losses) if play_losses else float("nan")}')
