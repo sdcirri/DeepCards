@@ -161,7 +161,7 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
         planes = [hand_encoding, seen_encoding, trick_encoding]
         planes.extend(self._extra_observation_planes(agent))
         planes.append(self._extra_observations(agent))
-        observation = np.concatenate(planes)
+        observation = np.concatenate(planes).astype(np.float32, copy=False)
 
         return {
             'observation': observation,

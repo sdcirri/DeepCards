@@ -23,8 +23,10 @@ from games.deck import CARD_INDEX, CARD_NUMBERS, DECK, Card, Hand, Suit
 from games.scopa import (
     ScopaHand,
     ScopaScore,
+    card_value,
     find_takes,
     legal_plays as scopa_legal_plays,
+    play_value,
     sorted_legal_plays,
 )
 from games.tressette import (
@@ -39,6 +41,14 @@ from games.tressette import (
 # ---------------------------------------------------------------------------
 
 
+def _scopa_first_legal_action(raw: Scopa2PEnv, agent: AgentId) -> tuple[int, int]:
+    legal = raw.hands[agent].scopa_legal_plays(raw.table)
+    assert legal
+    play_card, capture = legal[0]
+    options = [opt[1] for opt in legal if opt[0] == play_card]
+    return CARD_INDEX[play_card], options.index(capture)
+
+
 def _play_random_episode(factory, seed: int = 0) -> Any:
     game = factory()
     game.reset(seed=seed)
@@ -46,10 +56,12 @@ def _play_random_episode(factory, seed: int = 0) -> Any:
         observation, _, terminated, truncated, _ = game.last()
         if terminated or truncated:
             action = None
-        else:
+        elif 'action_mask' in observation:
             legal = np.flatnonzero(observation['action_mask'])
             assert legal.size > 0
             action = int(legal[0])
+        else:
+            action = _scopa_first_legal_action(game.unwrapped, agent)
         game.step(action)
     assert not game.agents
     return game
@@ -219,9 +231,40 @@ def test_scopa_hand_scoring() -> None:
     assert hand.score.settebello == 1
     assert hand.score.denari == 1
     assert hand.score.carte == 2
-    assert hand.score.primiera > 0
+    assert sum(hand.score.primiera.values()) > 0
     assert isinstance(hand.score, ScopaScore)
     assert len(hand.scopa_legal_plays([])) == 1
+    assert hand.get_score(opponent_primiera=0) >= 2
+
+
+def test_scopa_card_and_play_value() -> None:
+    settebello = _c(Suit.DENARI, 7)
+    assert card_value(settebello) > card_value(_c(Suit.SPADE, 2))
+    table = [_c(Suit.COPPE, 3), _c(Suit.BASTONI, 4)]
+    assert play_value((_c(Suit.SPADE, 1), []), table) < 0
+    capture = (_c(Suit.SPADE, 7), table)
+    assert play_value(capture, table) > play_value((_c(Suit.SPADE, 7), [table[0]]), table)
+
+
+def test_scopa_get_score_branches() -> None:
+    hand = ScopaHand([])
+    hand.score.scope = 1
+    hand.score.settebello = 1
+    hand.score.carte = 30
+    hand.score.denari = 8
+    hand.score.primiera = {suit: 21 for suit in Suit}
+    assert hand.get_score(opponent_primiera=0) == 5
+
+    hand.score.scope = hand.score.settebello = 0
+    hand.score.carte = 5
+    hand.score.denari = 1
+    hand.score.primiera = {suit: 0 for suit in Suit}
+    assert hand.get_score(opponent_primiera=80) == 0
+
+    hand.score.carte = 20
+    hand.score.denari = 5
+    hand.score.primiera = {suit: 10 for suit in Suit}
+    assert hand.get_score(opponent_primiera=40) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +357,7 @@ def test_cards_env_default_extra_planes_and_finish_hook() -> None:
     # Exercise Cards2PEnv defaults via a minimal concrete subclass.
     class Minimal(Cards2PEnv):
         OBSERVATION_PLANES = 3
+        EXTRA_OBSERVATIONS = 0
         MAX_HAND_POINTS = 6
 
         def _deal(self, shuffled_cards: list[Card]) -> None:
@@ -391,7 +435,7 @@ def test_tressette_known_hand_plane_and_draw() -> None:
     raw = tressette_raw()
     raw.reset(seed=7)
     obs0 = raw.observe(raw.agent_selection)['observation']
-    assert obs0.shape == (160,)
+    assert obs0.shape == (40 * Tressette2PEnv.OBSERVATION_PLANES + Tressette2PEnv.EXTRA_OBSERVATIONS,)
     # play until a draw happens (pile shrinks)
     pile0 = len(raw.pile)
     for _ in range(4):
@@ -434,7 +478,9 @@ def test_briscola_planes_and_trump_error() -> None:
     raw = briscola_raw()
     raw.reset(seed=1)
     assert raw.briscola is not None
-    assert raw.observe('p1')['observation'].shape == (160,)
+    assert raw.observe('p1')['observation'].shape == (
+        40 * Briscola2PEnv.OBSERVATION_PLANES + Briscola2PEnv.EXTRA_OBSERVATIONS,
+    )
     raw.briscola = None
     with pytest.raises(RuntimeError, match='without a briscola'):
         raw._lead_wins(DECK[0], DECK[1])
@@ -468,9 +514,26 @@ def test_scopa_complete_random_game() -> None:
     assert isinstance(raw.scores['p2'], int)
 
 
-def test_scopa_api_and_seed() -> None:
-    api_test(scopa_env(), num_cycles=200, verbose_progress=False)
-    seed_test(scopa_env, num_cycles=30)
+def test_scopa_seed_reproducible_with_legal_actions() -> None:
+    """
+    PettingZoo api_test/seed_test sample the full Tuple action space, which
+    includes illegal take indices. Seed determinism is checked with legal plays.
+    """
+    def run(seed: int) -> list[tuple[int, int]]:
+        game = scopa_env()
+        game.reset(seed=seed)
+        actions: list[tuple[int, int]] = []
+        for agent in game.agent_iter():
+            _, _, terminated, truncated, _ = game.last()
+            if terminated or truncated:
+                game.step(None)
+                continue
+            action = _scopa_first_legal_action(game.unwrapped, agent)
+            actions.append(action)
+            game.step(action)
+        return actions
+
+    assert run(11) == run(11)
 
 
 def test_scopa_init_validation_and_spaces() -> None:
@@ -485,9 +548,15 @@ def test_scopa_init_validation_and_spaces() -> None:
 
     raw = scopa_raw(render_mode='ansi')
     raw.reset(seed=0)
+    obs = raw.observe('p1')
+    expected = (
+        len(DECK) * Scopa2PEnv.OBSERVATION_PLANES + Scopa2PEnv.EXTRA_OBSERVATIONS
+    )
     assert raw.observation_space('p1') is not None
-    assert raw.action_space('p1').n == 80
-    assert raw.observe('p1')['observation'].shape == (200,)
+    assert raw.action_space('p1').spaces[0].n == len(DECK)
+    assert raw.action_space('p1').spaces[1].n == 10
+    assert obs['observation'].shape == (expected,)
+    assert 'play_mask' in obs and 'take_mask' in obs
     assert 'table=' in (raw.render() or '')
     raw.close()
 
@@ -503,34 +572,22 @@ def test_scopa_step_errors_and_dead() -> None:
     raw.step(None)
 
 
-def test_scopa_compute_final_scores_branches() -> None:
+def test_scopa_final_scores_via_get_score() -> None:
     raw = scopa_raw()
     raw.reset(seed=2)
     p1, p2 = raw.hands['p1'].score, raw.hands['p2'].score
-    # p1 wins all majors
     p1.scope, p1.settebello = 1, 1
-    p1.carte, p1.denari, p1.primiera = 30, 8, 100
-    p2.scope, p2.settebello = 0, 0
-    p2.carte, p2.denari, p2.primiera = 10, 2, 10
-    raw._compute_final_scores()
-    assert raw.scores['p1'] == 1 + 1 + 1 + 1 + 1
-    assert raw.scores['p2'] == 0
-
-    # p2 wins majors
-    p1.carte, p1.denari, p1.primiera = 5, 1, 5
-    p2.carte, p2.denari, p2.primiera = 20, 9, 80
-    p1.scope = p1.settebello = 0
+    p1.carte, p1.denari = 30, 8
+    p1.primiera = {suit: 21 for suit in Suit}
     p2.scope = p2.settebello = 0
-    raw._compute_final_scores()
-    assert raw.scores['p2'] == 3
-    assert raw.scores['p1'] == 0
-
-    # ties → no majority points
-    p1.carte = p2.carte = 20
-    p1.denari = p2.denari = 5
-    p1.primiera = p2.primiera = 50
-    raw._compute_final_scores()
-    assert raw.scores['p1'] == 0 and raw.scores['p2'] == 0
+    p2.carte, p2.denari = 10, 2
+    p2.primiera = {suit: 0 for suit in Suit}
+    p1_primiera = sum(p1.primiera.values())
+    p2_primiera = sum(p2.primiera.values())
+    raw.scores['p1'] = raw.hands['p1'].get_score(p2_primiera)
+    raw.scores['p2'] = raw.hands['p2'].get_score(p1_primiera)
+    assert raw.scores['p1'] == 5
+    assert raw.scores['p2'] == 0
 
 
 def test_scopa_redeal_exhausted() -> None:
@@ -550,9 +607,8 @@ def test_scopa_human_render_mocked() -> None:
     with patch('environments.piacentine_viz.render_scopa_table') as r, \
             patch('environments.piacentine_viz.close_live_window') as c:
         raw.render()
-        # also exercise human path inside step
-        mask = raw.observe(raw.agent_selection)['action_mask']
-        raw.step(int(np.flatnonzero(mask)[0]))
+        action = _scopa_first_legal_action(raw, raw.agent_selection)
+        raw.step(action)
         raw.close()
         assert r.call_count >= 1
         c.assert_called_once()
@@ -573,8 +629,34 @@ def test_scopa_capture_and_scopa_point() -> None:
     # Ensure game not finished
     assert raw.pile
     legal = raw.hands[agent].scopa_legal_plays(raw.table)
-    idx = next(i for i, (c, t) in enumerate(legal) if c == play_card and t == [table_card])
+    assert any(c == play_card and t == [table_card] for c, t in legal)
     before = raw.hands[agent].score.scope
-    raw.step(idx)
+    raw.step((CARD_INDEX[play_card], 0))
     assert raw.hands[agent].score.scope == before + 1
     assert table_card not in raw.table
+
+
+def test_scopa_dump_on_table_and_endgame_reward() -> None:
+    raw = scopa_raw()
+    raw.reset(seed=5)
+    agent = raw.agent_selection
+    play_card = _c(Suit.SPADE, 1)
+    raw.table = [_c(Suit.DENARI, 10)]
+    raw.hands[agent].cards = [play_card]
+    raw.hands[agent].seen.update(raw.table)
+    raw.hands[agent].seen.add(play_card)
+    raw.step((CARD_INDEX[play_card], 0))
+    assert play_card in raw.table
+
+    # Finish the hand to exercise terminal scoring / rewards.
+    raw.pile.clear()
+    raw.hands['p1'].cards.clear()
+    raw.hands['p2'].cards.clear()
+    raw.table = [_c(Suit.COPPE, 2)]
+    raw.last_winner = 'p1'
+    # One more forced capture that ends the game
+    raw.hands['p1'].cards = [_c(Suit.BASTONI, 2)]
+    raw.agent_selection = 'p1'
+    raw.step((CARD_INDEX[_c(Suit.BASTONI, 2)], 0))
+    assert raw.terminations['p1'] and raw.terminations['p2']
+    assert isinstance(raw.scores['p1'], int)
