@@ -431,25 +431,68 @@ def test_tressette_api_and_seed() -> None:
     seed_test(tressette_env, num_cycles=30)
 
 
-def test_tressette_known_hand_plane_and_draw() -> None:
+def test_tressette_observation_extras_and_known_plane() -> None:
     raw = tressette_raw()
     raw.reset(seed=7)
-    obs0 = raw.observe(raw.agent_selection)['observation']
-    assert obs0.shape == (40 * Tressette2PEnv.OBSERVATION_PLANES + Tressette2PEnv.EXTRA_OBSERVATIONS,)
+    agent = raw.agent_selection
+    obs = raw.observe(agent)
+    expected = (
+        len(DECK) * Tressette2PEnv.OBSERVATION_PLANES
+        + Tressette2PEnv.EXTRA_OBSERVATIONS
+    )
+    assert obs['observation'].shape == (expected,)
+    assert obs['observation'].dtype == np.float32
+    extras = obs['observation'][-Tressette2PEnv.EXTRA_OBSERVATIONS :]
+    assert extras[0] == pytest.approx(len(raw.pile) / 20)
+    assert 0.0 <= float(extras.min()) and float(extras.max()) <= 1.0
+
+    planes = raw._extra_observation_planes(agent)
+    assert len(planes) == 1
+    assert planes[0].shape == (len(DECK),)
+    assert planes[0].dtype == np.int8
+
     # play until a draw happens (pile shrinks)
     pile0 = len(raw.pile)
     for _ in range(4):
         if raw.terminations['p1']:
             break
-        agent = raw.agent_selection
-        mask = raw.observe(agent)['action_mask']
+        turn = raw.agent_selection
+        mask = raw.observe(turn)['action_mask']
         raw.step(int(np.flatnonzero(mask)[0]))
     assert len(raw.pile) <= pile0
 
 
+def test_tressette_ultima_reward_symmetric() -> None:
+    raw = tressette_raw()
+    raw.reset(seed=3)
+    # Force end-of-game ultima on the last trick.
+    raw.pile.clear()
+    raw.hands['p1'].cards = [_c(Suit.DENARI, 2)]
+    raw.hands['p2'].cards = [_c(Suit.DENARI, 3)]
+    raw.lead_play = LeadPlay(agent='p1', card=_c(Suit.DENARI, 2))
+    raw.hands['p1'].cards.clear()
+    raw.agent_selection = 'p2'
+    before_p1, before_p2 = raw.scores['p1'], raw.scores['p2']
+    raw.step(CARD_INDEX[_c(Suit.DENARI, 3)])
+    assert raw.terminations['p1'] and raw.terminations['p2']
+    # Follower 3 beats lead 2 → p2 wins ultima (+3 thirds) and trick points.
+    assert raw.scores['p2'] == before_p2 + card_point_thirds(_c(Suit.DENARI, 2)) + card_point_thirds(
+        _c(Suit.DENARI, 3)
+    ) + 3
+    assert raw.scores['p1'] == before_p1
+    ultima = 3 / raw.MAX_HAND_POINTS
+    trick = (
+        card_point_thirds(_c(Suit.DENARI, 2)) + card_point_thirds(_c(Suit.DENARI, 3))
+    ) / raw.MAX_HAND_POINTS
+    assert raw.rewards['p2'] == pytest.approx(trick + ultima)
+    assert raw.rewards['p1'] == pytest.approx(-(trick + ultima))
+
+
 def test_tressette_human_render_mocked() -> None:
-    raw = tressette_raw(render_mode='human')
+    raw = tressette_raw()
     raw.reset(seed=0)
+    # switch to human after reset so we only mock viz calls
+    raw.render_mode = 'human'
     with patch('environments.piacentine_viz.render_tressette_table') as r, \
             patch('environments.piacentine_viz.close_live_window') as c:
         assert raw.render() is None
@@ -474,16 +517,29 @@ def test_briscola_api_and_seed() -> None:
     seed_test(briscola_env, num_cycles=30)
 
 
-def test_briscola_planes_and_trump_error() -> None:
+def test_briscola_planes_extras_and_trump_error() -> None:
     raw = briscola_raw()
     raw.reset(seed=1)
     assert raw.briscola is not None
-    assert raw.observe('p1')['observation'].shape == (
-        40 * Briscola2PEnv.OBSERVATION_PLANES + Briscola2PEnv.EXTRA_OBSERVATIONS,
+    obs = raw.observe('p1')['observation']
+    expected = (
+        len(DECK) * Briscola2PEnv.OBSERVATION_PLANES
+        + Briscola2PEnv.EXTRA_OBSERVATIONS
     )
+    assert obs.shape == (expected,)
+    assert obs.dtype == np.float32
+    extras = obs[-Briscola2PEnv.EXTRA_OBSERVATIONS :]
+    assert extras[0] == pytest.approx(len(raw.pile) / 34)
+    assert 0.0 <= float(extras.min()) and float(extras.max()) <= 1.0
+
+    plane = raw._extra_observation_planes('p1')[0]
+    assert plane[CARD_INDEX[raw.briscola]] == 1
+    assert int(plane.sum()) == 1
+
     raw.briscola = None
     with pytest.raises(RuntimeError, match='without a briscola'):
         raw._lead_wins(DECK[0], DECK[1])
+    assert raw._extra_observation_planes('p1')[0].sum() == 0
 
 
 def test_briscola_ansi_and_human() -> None:
