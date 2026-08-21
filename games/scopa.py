@@ -78,7 +78,7 @@ def card_value(card: Card) -> float:
     :return: the card value
     """
     # Carte and primiera
-    value = 1 / 40 + PRIMIERA_BY_NUM[card.number-1] / 139
+    value = 1 / 40 + PRIMIERA_BY_NUM[card.number-1] / 84
     # Settebello
     if card == Card(Suit.DENARI, 7):
         value += 1
