@@ -22,7 +22,7 @@ from games.briscola import BriscolaHand, card_points, first_card_wins as briscol
 from games.deck import CARD_INDEX, CARD_NUMBERS, DECK, Card, Hand, Suit
 from games.scopa import (
     ScopaHand,
-    ScopaScope,
+    ScopaScore,
     find_takes,
     legal_plays as scopa_legal_plays,
     sorted_legal_plays,
@@ -220,7 +220,7 @@ def test_scopa_hand_scoring() -> None:
     assert hand.score.denari == 1
     assert hand.score.carte == 2
     assert hand.score.primiera > 0
-    assert isinstance(hand.score, ScopaScope)
+    assert isinstance(hand.score, ScopaScore)
     assert len(hand.scopa_legal_plays([])) == 1
 
 

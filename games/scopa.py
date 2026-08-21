@@ -103,7 +103,7 @@ def play_value(play: tuple[Card, list[Card]], table: list[Card]) -> float:
 
 
 @dataclass
-class ScopaScope:
+class ScopaScore:
     scope: int = 0
     primiera: dict[Suit, int] = field(default_factory=lambda: {s: 0 for s in Suit})
     settebello: int = 0
@@ -115,7 +115,7 @@ class ScopaScope:
 class ScopaHand(Hand):
     taken_cards: list[Card] = field(default_factory=list)
     opponent_taken_cards: list[Card] = field(default_factory=list)
-    score: ScopaScope = field(default_factory=ScopaScope)
+    score: ScopaScore = field(default_factory=ScopaScore)
 
     def scopa_legal_plays(self, table: list[Card]) -> list[tuple[Card, list[Card]]]:
         """
