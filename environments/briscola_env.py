@@ -50,8 +50,6 @@ class Briscola2PEnv(Cards2PEnv):
 
         if self.render_mode == 'human':
             from environments.piacentine_viz import render_briscola_table
-
-            # Fixed camera: p1 at the bottom so plays come from the correct hand.
             render_briscola_table(self, viewpoint='p1')
 
         return None
@@ -66,7 +64,7 @@ class Briscola2PEnv(Cards2PEnv):
     def _extra_observations(self, agent: AgentId) -> list[float]:
         opponent = 'p1' if agent == 'p2' else 'p2'
         # 6 cards have already been dealt
-        return [len(self.pile) / 34, self.scores[agent] / 60, self.scores[opponent] / 60]
+        return [len(self.pile) / 34, self.scores[agent] / 120, self.scores[opponent] / 120]
 
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
