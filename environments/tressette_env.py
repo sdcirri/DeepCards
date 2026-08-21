@@ -74,6 +74,8 @@ class Tressette2PEnv(Cards2PEnv):
         last_trick_thirds = 3
         self.scores[winner] += last_trick_thirds
         self.rewards[winner] += last_trick_thirds / self.MAX_HAND_POINTS
+        loser = 'p1' if winner == 'p2' else 'p2'
+        self.rewards[loser] -= last_trick_thirds / self.MAX_HAND_POINTS
 
     def _extra_observation_planes(self, agent: AgentId) -> list[BinaryArray]:
         opponent_hand_encoding =  np.fromiter(
