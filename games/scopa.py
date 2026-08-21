@@ -146,8 +146,8 @@ class ScopaHand(Hand):
             if (p := PRIMIERA_BY_NUM[card.number-1]) > self.score.primiera[card.suit]:
                 self.score.primiera[card.suit] = p
 
-    def get_score(self) -> int:
+    def get_score(self, opponent_primiera: int) -> int:
         return self.score.scope + self.score.settebello \
-            + (1 if sum(self.score.primiera.values()) > 42 else 0) \
+            + (1 if sum(self.score.primiera.values()) > opponent_primiera else 0) \
             + (1 if self.score.carte > 20 else 0) \
             + (1 if self.score.denari > 5 else 0)

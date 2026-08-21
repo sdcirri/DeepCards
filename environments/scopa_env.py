@@ -225,8 +225,6 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.hands[agent].play_card(played_card)
         self.hands[opponent].see_card(played_card)
 
-        score, opponent_score = self.hands[agent].score, self.hands[opponent].score
-
         if len(taken_cards) == 0:
             self.table.append(played_card)
         else:
@@ -243,11 +241,13 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             self.hands[self.last_winner].update_score(self.table)
             self.table.clear()
 
+            opponent_primiera = sum(self.hands[opponent].score.primiera.values())
+
             for agent in self.agents:
-                self.scores[agent] = self.hands[agent].get_score()
+                self.scores[agent] = self.hands[agent].get_score(opponent_primiera)
                 self.terminations[agent] = True
 
-            delta = self.hands['p1'].get_score() - self.hands['p2'].get_score()
+            delta = self.hands['p1'].get_score(opponent_primiera) - self.hands['p2'].get_score(opponent_primiera)
             self.rewards['p1'], self.rewards['p2'] = delta, -delta
 
             self._deads_step_first()
