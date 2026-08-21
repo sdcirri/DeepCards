@@ -2,7 +2,7 @@ from environments.briscola_env import Briscola2PEnv, AgentId, Action
 
 from agents.agent import Cards2PAgent
 
-from games.briscola import CARD_POWER, card_points
+from games.briscola import CARD_POWER, card_points, first_card_wins
 from games.deck import CARD_INDEX
 
 
@@ -20,23 +20,21 @@ class PointsAwareGreedyAgent(Cards2PAgent):
             return None
 
         lead = None if env.lead_play is None else env.lead_play.card
-        legal = env.hands[self.whoami].legal_plays(lead)
+        hand = env.hands[self.whoami].cards
+        briscola = env.briscola
 
         if lead is None:
             # Leading: win cheaply with 0-point cards, else lead lowest value
-            zero_point = [c for c in legal if card_points(c) == 0]
+            zero_point = [c for c in hand if card_points(c) == 0]
             if zero_point:
                 card = max(zero_point, key=lambda c: CARD_POWER[c.number])
             else:
                 card = min(
-                    legal,
+                    hand,
                     key=lambda c: (card_points(c), CARD_POWER[c.number])
                 )
         else:
-            winners = [
-                c for c in legal
-                if c.suit == lead.suit and CARD_POWER[c.number] > CARD_POWER[lead.number]
-            ]
+            winners = [c for c in hand if first_card_wins(c, lead, briscola.suit)]
             if winners:
                 # Cheapest card that still wins the trick
                 card = min(
@@ -46,7 +44,8 @@ class PointsAwareGreedyAgent(Cards2PAgent):
             else:
                 # Losing: shed lowest-value card (opponent already winning)
                 card = min(
-                    legal, key=lambda c: (card_points(c), CARD_POWER[c.number])
+                    hand,
+                    key=lambda c: (card_points(c), CARD_POWER[c.number])
                 )
 
         return CARD_INDEX[card]
