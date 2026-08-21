@@ -105,7 +105,7 @@ def play_value(play: tuple[Card, list[Card]], table: list[Card]) -> float:
 @dataclass
 class ScopaScope:
     scope: int = 0
-    primiera: int = 0
+    primiera: dict[Suit, int] = field(default_factory=lambda: {s: 0 for s in Suit})
     settebello: int = 0
     carte: int = 0
     denari: int = 0
@@ -140,7 +140,14 @@ class ScopaHand(Hand):
             if card == Card(Suit.DENARI, 7):
                 self.score.settebello = 1
 
-            self.score.primiera += PRIMIERA_BY_NUM[card.number-1]
-
             if card.suit == Suit.DENARI:
                 self.score.denari += 1
+
+            if (p := PRIMIERA_BY_NUM[card.number-1]) > self.score.primiera[card.suit]:
+                self.score.primiera[card.suit] = p
+
+    def get_score(self) -> int:
+        return self.score.scope + self.score.settebello \
+            + (1 if sum(self.score.primiera.values()) > 42 else 0) \
+            + (1 if self.score.carte > 20 else 0) \
+            + (1 if self.score.denari > 5 else 0)
