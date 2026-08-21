@@ -6,6 +6,7 @@ import torch
 
 from environments.scopa_env import Scopa2PEnv, AgentId
 from games.deck import CARD_INDEX, Card, DECK
+from games.scopa import ScopaScore
 
 from ..dqn import (
     CardNN,
@@ -83,6 +84,16 @@ def take_train_step(
     return loss.item()
 
 
+def take_value(score: ScopaScore) -> float:
+    return (
+        score.scope
+        + score.settebello
+        + score.carte / 40
+        + score.denari / 10
+        + sum(score.primiera.values()) / 84
+    )
+
+
 def train(
         env: Scopa2PEnv,
         whoami: AgentId,
@@ -147,9 +158,11 @@ def train(
                         device,
                         [opt[1] for opt in take_opts]
                     )
+                    take_invoked = True
                 else:
                     take = 0
 
+                before_value = take_value(env.hands[whoami].score)
                 env.step((play, take))
                 reward = float(env.rewards[whoami])
                 done = env.terminations[whoami]
@@ -168,14 +181,14 @@ def train(
                 next_state, next_play_mask, next_take_mask = next_obs['observation'], next_obs['play_mask'], next_obs['take_mask']
                 play_buffer.add(state, play, reward, next_state, next_play_mask, done)
 
-                if len(take_opts) > 1:
+                if take_invoked:
                     take_next_state = np.concatenate((next_state, np.zeros(play_actions, dtype=np.int8)))
                     capture = take_opts[take][1]
                     mask = np.zeros(len(DECK), dtype=np.float32)
                     for c in capture:
                         mask[CARD_INDEX[c]] = 1.0
+                    reward = take_value(env.hands[whoami].score) - before_value
                     take_buffer.add(take_state, mask, reward, take_next_state, next_take_mask, True)
-                    take_invoked = True
                 total_steps += 1
 
                 play_loss, take_loss = 0, 0
