@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
+from typing import TypeAlias
 from functools import cache
 
 from .deck import Suit, Card, Hand, CARD_INDEX
+
+
+ScopaPlay: TypeAlias = tuple[Card, list[Card]]
 
 
 PRIMIERA_BY_NUM = (16, 12, 13, 14, 15, 18, 21, 10, 10, 10)
@@ -31,7 +35,7 @@ def find_takes(card: Card, table: tuple[Card]) -> list[list[Card]]:
     return dp[card.number]
 
 
-def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card, list[Card]]]:
+def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
     """
     List legal plays, returns a list of
     tuples representing legal plays like this:
@@ -55,7 +59,7 @@ def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card, list[
 
 
 @cache
-def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[tuple[Card, list[Card]]]:
+def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
     """
     List legal plays, returns a list of
     tuples representing legal plays like this:
@@ -88,7 +92,7 @@ def card_value(card: Card) -> float:
     return value
 
 
-def play_value(play: tuple[Card, list[Card]], table: list[Card]) -> float:
+def play_value(play: ScopaPlay, table: list[Card]) -> float:
     if len(play[1]) == 0:
         # Leaving a card on the table is potentially lost value
         return -card_value(play[0])
@@ -117,7 +121,7 @@ class ScopaHand(Hand):
     opponent_taken_cards: list[Card] = field(default_factory=list)
     score: ScopaScore = field(default_factory=ScopaScore)
 
-    def scopa_legal_plays(self, table: list[Card]) -> list[tuple[Card, list[Card]]]:
+    def scopa_legal_plays(self, table: list[Card]) -> list[ScopaPlay]:
         """
         List legal plays, returns a list of
         tuples representing legal plays like this:
