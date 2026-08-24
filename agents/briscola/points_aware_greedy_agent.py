@@ -34,7 +34,7 @@ class PointsAwareGreedyAgent(Cards2PAgent):
                     key=lambda c: (card_points(c), CARD_POWER[c.number])
                 )
         else:
-            winners = [c for c in hand if first_card_wins(c, lead, briscola.suit)]
+            winners = [c for c in hand if not first_card_wins(lead, c, briscola.suit)]
             if winners:
                 # Cheapest card that still wins the trick
                 card = min(
