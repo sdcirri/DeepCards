@@ -3,8 +3,8 @@ from typing import Callable
 
 import numpy as np
 
+from environments.cards_env import AgentId, encode_cards
 from environments.scopa_env import Scopa2PEnv
-from environments.cards_env import AgentId
 
 from games.deck import CARD_INDEX, DECK, Card
 
@@ -33,31 +33,21 @@ def build_play_candidates(
     for card in sorted(env.hands[agent].cards, key=CARD_INDEX.__getitem__):
         options = [take for played, take in legal if played == card]
         take = take_strategy(options)
-        captured = options[take]
 
         played_encoding = np.zeros(len(DECK), dtype=np.float32)
         played_encoding[CARD_INDEX[card]] = 1.0
 
-        captured_encoding = np.zeros(len(DECK), dtype=np.float32)
-        for captured_card in captured:
-            captured_encoding[CARD_INDEX[captured_card]] = 1.0
+        captured = options[take]
+        captured_encoding = encode_cards(captured)
 
         resulting_table = set(env.table)
         if captured:
             resulting_table.difference_update(captured)
         else:
             resulting_table.add(card)
-        table_encoding = np.fromiter(
-            (table_card in resulting_table for table_card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
+        table_encoding = encode_cards(resulting_table)
 
-        game_finishes = (
-            not env.pile
-            and len(env.hands[agent].cards) == 1
-            and len(env.hands[opponent].cards) == 0
-        )
+        game_finishes = not env.pile and len(env.hands[agent].cards) == 1 and len(env.hands[opponent].cards) == 0
         makes_scopa = float(bool(captured) and not resulting_table and not game_finishes)
 
         features = np.concatenate((
