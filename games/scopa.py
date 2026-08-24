@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import TypeAlias
-from functools import cache
 
 from .deck import Suit, Card, Hand, CARD_INDEX
 
@@ -58,7 +57,6 @@ def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
     return ret
 
 
-@cache
 def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
     """
     List legal plays, returns a list of

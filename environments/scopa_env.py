@@ -12,7 +12,7 @@ from pettingzoo import AECEnv
 from games.scopa import ScopaHand
 from games.deck import DECK, Card
 
-from .cards_env import AgentId, Observation
+from .cards_env import AgentId, Observation, encode_cards
 
 
 Action: TypeAlias = tuple[int, int]
@@ -153,31 +153,11 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
     def observe(self, agent: AgentId) -> Observation:
         hand = self.hands[agent]
-        hand_encoding = np.fromiter(
-            (card in hand.cards for card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
-        seen_encoding = np.fromiter(
-            (card in hand.seen for card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
-        table_encoding = np.fromiter(
-            (card in self.table for card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
-        taken_encoding = np.fromiter(
-            (card in hand.taken_cards for card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
-        opponent_taken_encoding = np.fromiter(
-            (card in hand.opponent_taken_cards for card in DECK),
-            dtype=np.float32,
-            count=len(DECK),
-        )
+        hand_encoding = encode_cards(hand.cards)
+        seen_encoding = encode_cards(hand.seen)
+        table_encoding = encode_cards(self.table)
+        taken_encoding = encode_cards(hand.taken_cards)
+        opponent_taken_encoding = encode_cards(hand.opponent_taken_cards)
 
         opp = 'p1' if agent == 'p2' else 'p2'
         my_score, opp_score = self.hands[agent].score, self.hands[opp].score

@@ -5,11 +5,11 @@ from sys import argv
 import torch
 
 from agents.scopa.value_aware_greedy_agent import ValueAwareGreedyAgent
-from agents.scopa.greedy_take_dqn_agent import GreedyTakeDQNAgent
-from agents.scopa.dqn_agent import DQNAgent, CardNN, OBS_DIM
+from agents.scopa.dqn_agent import DQNAgent, OBS_DIM
 from agents.scopa.greedy_agent import GreedyAgent
 from agents.scopa.random_agent import RandomAgent
-from agents.scopa.scopa_dqn import train
+from agents.scopa.dqn.scopa_nn import ScopaNN
+from agents.scopa.dqn.training import train
 from agents.agent import Cards2PAgent
 
 from environments.scopa_env import env as env_factory, AgentId
@@ -25,7 +25,7 @@ print('Initializing agents ...')
 
 if MODEL_PATH.exists():
     print(f'Loading model from {MODEL_PATH}')
-    play_dqn_net = CardNN(40).to(DQNAgent.device)
+    play_dqn_net = ScopaNN(OBS_DIM).to(DQNAgent.device)
     play_dqn_net.load_state_dict(torch.load(MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
     play_dqn_net.eval()
 else:
@@ -33,7 +33,6 @@ else:
     play_dqn_net = train(
         env_factory(render_mode=None),
         'p1',
-        40,
         OBS_DIM,
         DQNAgent.device,
         [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
@@ -49,7 +48,7 @@ agent_factories: list[tuple[str, AgentFactory]] = [
     ('Random', lambda whoami: RandomAgent(whoami)),
     ('Greedy', lambda whoami: GreedyAgent(whoami)),
     ('Value-Aware Greedy', lambda whoami: ValueAwareGreedyAgent(whoami)),
-    ('DQN + Greedy Take', lambda whoami: GreedyTakeDQNAgent(whoami, play_dqn_net)),
+    ('DQN', lambda whoami: DQNAgent(whoami, play_dqn_net)),
 ]
 
 EPISODES = 10_000

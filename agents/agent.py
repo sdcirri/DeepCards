@@ -1,12 +1,9 @@
-from __future__ import annotations
-
-import os
-from abc import ABC, abstractmethod
-from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Literal, TypeAlias
-
+from collections.abc import Callable
+from abc import ABC, abstractmethod
 from gymnasium.utils import seeding
+import os
 
 
 AgentId: TypeAlias = Literal['p1', 'p2']
@@ -44,12 +41,15 @@ def run_challenge(
 ) -> tuple[int, int]:
     # Render disables process parallelism (pygame is process-local).
     pool_size = 1 if render_mode is not None else os.cpu_count()
+    chunk_size = max(1, episodes // (pool_size * 4))
+
     with ProcessPoolExecutor(max_workers=pool_size) as executor:
         results = executor.map(
             one_episode,
             [agent1] * episodes,
             [agent2] * episodes,
-            [render_mode] * episodes
+            [render_mode] * episodes,
+            chunksize=chunk_size
         )
 
     points_1, points_2 = 0, 0

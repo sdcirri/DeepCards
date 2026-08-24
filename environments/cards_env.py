@@ -1,4 +1,4 @@
-from typing import Any, TypeAlias, Literal
+from typing import Any, TypeAlias, Literal, Iterable
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections import deque
@@ -31,6 +31,13 @@ def card_from_action(action: int) -> Card:
     if not 0 <= action < len(DECK):
         raise ValueError(f'Invalid action: {action}')
     return DECK[action]
+
+
+def encode_cards(cards: Iterable[Card]) -> np.ndarray:
+    encoding = np.zeros(len(DECK), dtype=np.float32)
+    for card in cards:
+        encoding[CARD_INDEX[card]] = 1.0
+    return encoding
 
 
 class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
@@ -143,18 +150,9 @@ class Cards2PEnv(AECEnv[AgentId, Observation, Action], ABC):
 
     def observe(self, agent: AgentId) -> Observation:
         hand = self.hands[agent]
-        hand_encoding = np.fromiter(
-            (card in hand.cards for card in DECK),
-            dtype=np.int8,
-            count=len(DECK),
-        )
-        seen_encoding = np.fromiter(
-            (card in hand.seen for card in DECK),
-            dtype=np.int8,
-            count=len(DECK),
-        )
+        hand_encoding = encode_cards(hand.cards)
+        seen_encoding = encode_cards(hand.seen)
         trick_encoding = np.zeros(len(DECK), dtype=np.int8)
-
         if self.lead_play is not None:
             trick_encoding[CARD_INDEX[self.lead_play.card]] = 1
 
