@@ -1,19 +1,21 @@
+from dataclasses import dataclass
+
+import matplotlib.pyplot as plt
 from collections import deque
 from typing import Any
 import random
 
-import matplotlib.pyplot as plt
-
+from numpy.typing import NDArray
 import numpy as np
 
 import torch.optim as optim
 import torch.nn as nn
 import torch
 
+from environments.cards_env import Action
 from games.deck import DECK
 
 from .agent import AgentId, Cards2PAgent
-
 
 
 class CardNN(nn.Module):
@@ -33,14 +35,25 @@ class CardNN(nn.Module):
         return self.net(x)
 
 
+
+@dataclass(frozen=True, slots=True)
+class Transition:
+    state: NDArray[np.float32]
+    action: Action
+    reward: float
+    next_state: NDArray[np.float32]
+    next_mask: NDArray[np.float32]
+    done: bool
+
+
 class ReplayBuffer:
     def __init__(self, capacity: int) -> None:
-        self.buffer: deque[tuple] = deque(maxlen=capacity)
+        self.buffer: deque[Transition] = deque(maxlen=capacity)
 
-    def add(self, state, action, reward, next_state, next_mask, done) -> None:
-        self.buffer.append((state, action, reward, next_state, next_mask, done))
+    def add(self, transition: Transition) -> None:
+        self.buffer.append(transition)
 
-    def sample(self, batch_size: int) -> list[tuple]:
+    def sample(self, batch_size: int) -> list[Transition]:
         return random.sample(self.buffer, batch_size)
 
     def clear(self) -> None:
@@ -74,24 +87,49 @@ def choose_action(
 
 
 def train_step(
-    online_net: CardNN,
-    target_net: CardNN,
+    online_net: nn.Module,
+    target_net: nn.Module,
     optimizer: optim.Optimizer,
     replay_buffer: ReplayBuffer,
     batch_size: int,
     gamma: float,
     device: torch.device,
 ) -> float:
-    states, actions, rewards, next_states, next_masks, dones = zip(
-        *replay_buffer.sample(batch_size)
-    )
+    transitions = replay_buffer.sample(batch_size)
 
-    states = torch.as_tensor(np.stack(states), dtype=torch.float32, device=device)
-    actions = torch.as_tensor(actions, dtype=torch.long, device=device)
-    rewards = torch.as_tensor(rewards, dtype=torch.float32, device=device)
-    next_states = torch.as_tensor(np.stack(next_states), dtype=torch.float32, device=device)
-    next_masks = torch.as_tensor(np.stack(next_masks), dtype=torch.float32, device=device)
-    dones = torch.as_tensor(dones, dtype=torch.float32, device=device)
+    states = torch.as_tensor(
+        np.stack([transition.state for transition in transitions]),
+        dtype=torch.float32,
+        device=device,
+    )
+    actions = torch.as_tensor(
+        np.stack([transition.action for transition in transitions]),
+        dtype=torch.int32,
+        device=device,
+    )
+    rewards = torch.as_tensor(
+        [transition.reward for transition in transitions],
+        dtype=torch.float32,
+        device=device,
+    )
+    next_states = torch.as_tensor(
+        np.stack([transition.next_state for transition in transitions]),
+        dtype=torch.float32,
+        device=device,
+    )
+    next_masks = torch.as_tensor(
+        np.stack([
+            transition.next_mask
+            for transition in transitions
+        ]),
+        dtype=torch.float32,
+        device=device,
+    )
+    dones = torch.as_tensor(
+        [transition.done for transition in transitions],
+        dtype=torch.float32,
+        device=device,
+    )
 
     q_values = online_net(states)
     chosen_q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
@@ -199,7 +237,10 @@ def train(
                 next_state = next_obs['observation']
                 next_mask = next_obs['action_mask']
 
-                replay_buffer.add(state, action, reward, next_state, next_mask, done)
+                replay_buffer.add(Transition(
+                    state=state, action=action, reward=reward,
+                    next_state=next_state, next_mask=next_mask, done=done
+                ))
                 total_steps += 1
 
                 if len(replay_buffer) >= batch_size:
@@ -230,9 +271,9 @@ def train(
 
 class DQNAgent(Cards2PAgent):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    net: CardNN
+    net: nn.Module
 
-    def __init__(self, whoami: AgentId, trained_net: CardNN) -> None:
+    def __init__(self, whoami: AgentId, trained_net: nn.Module) -> None:
         super().__init__(whoami, 'DQN Agent')
         self.net = trained_net
 
