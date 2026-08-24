@@ -22,5 +22,5 @@ class GreedyTakeDQNAgent(DQNAgent):
         options = [opt[1] for opt in legal if opt[0] == DECK[play]]
         return max(
             range(len(options)),
-            key=lambda i: sum(card_value(c) for c in options[i])
+            key=lambda i: len(options[i])
         )
