@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
-from .deck import Suit, Card, Hand, CARD_INDEX
+from .deck import Suit, Card, Hand
 
 
 ScopaPlay: TypeAlias = tuple[Card, list[Card]]
@@ -57,22 +57,6 @@ def legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
     return ret
 
 
-def sorted_legal_plays(hand: tuple[Card], table: tuple[Card]) -> list[ScopaPlay]:
-    """
-    List legal plays, returns a list of
-    tuples representing legal plays like this:
-    (playable_card, [list of cards on the table taken by that card]),
-    sorted by card indexes
-    """
-    return sorted(
-        legal_plays(hand, table),
-        key=lambda pt: (
-            CARD_INDEX[pt[0]],
-            tuple(sorted(CARD_INDEX[c] for c in pt[1])),
-        ),
-    )
-
-
 def card_value(card: Card) -> float:
     """
     Estimation of card advantage when taken
@@ -126,7 +110,7 @@ class ScopaHand(Hand):
         (playable_card, [list of cards on the table taken by that card]),
         sorted by card indexes
         """
-        return sorted_legal_plays(tuple(self.cards), tuple(table))
+        return legal_plays(tuple(self.cards), tuple(table))
 
     def see_opponent_taken(self, cards: list[Card]) -> None:
         self.opponent_taken_cards.extend(cards)
