@@ -25,11 +25,7 @@ class DQNAgent(BaseDQNAgent):
             return None
 
         obs = env.observe(self.whoami)
-        candidates = build_play_candidates(
-            env,
-            self.whoami,
-            lambda opt: max(range(len(opt)), key=lambda i: len(opt[i]))
-        )
+        candidates = build_play_candidates(env, self.whoami)
         candidate = choose_candidate(
                 obs['observation'],
                 candidates,

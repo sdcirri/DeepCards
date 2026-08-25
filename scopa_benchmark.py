@@ -37,7 +37,6 @@ else:
         DQNAgent.device,
         [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
         [1000, 5000, 25000],
-        lambda options: max(range(len(options)), key=lambda i: len(options[i])),
         True
     )
     torch.save(play_dqn_net.state_dict(), MODEL_PATH)

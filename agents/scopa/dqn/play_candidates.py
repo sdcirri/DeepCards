@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
@@ -11,8 +10,6 @@ from games.deck import CARD_INDEX, DECK, Card
 
 ACTION_FEATURE_DIM = len(DECK) * 3 + 1
 
-TakeStrategy = Callable[[list[list[Card]]], int]
-
 
 @dataclass(frozen=True, slots=True)
 class PlayCandidate:
@@ -21,45 +18,40 @@ class PlayCandidate:
     features: np.ndarray
 
 
-def build_play_candidates(
-    env: Scopa2PEnv,
-    agent: AgentId,
-    take_strategy: TakeStrategy,
-) -> list[PlayCandidate]:
+def build_play_candidates(env: Scopa2PEnv, agent: AgentId) -> list[PlayCandidate]:
     legal = env.hands[agent].scopa_legal_plays(env.table)
-
-    options_by_card: dict[Card, list[list[Card]]] = {}
-    for played, take in legal:
-        options_by_card.setdefault(played, []).append(take)
-
     opponent = 'p2' if agent == 'p1' else 'p1'
+
     game_finishes = not env.pile and len(env.hands[agent].cards) == 1 and len(env.hands[opponent].cards) == 0
 
-    n = len(DECK)
-    table_base = encode_cards(env.table)
     candidates: list[PlayCandidate] = []
 
-    for card in sorted(options_by_card, key=CARD_INDEX.__getitem__):
-        options = options_by_card[card]
-        take = take_strategy(options)
-        captured = options[take]
-        play_idx = CARD_INDEX[card]
+    for card in sorted(env.hands[agent].cards, key=CARD_INDEX.__getitem__):
+        options = [take for played, take in legal if played == card]
+        played_encoding = np.zeros(len(DECK), dtype=np.float32)
+        played_encoding[CARD_INDEX[card]] = 1.0
 
-        row = np.zeros(ACTION_FEATURE_DIM, dtype=np.float32)
-        row[play_idx] = 1.0
-        for c in captured:
-            row[n + CARD_INDEX[c]] = 1.0
+        for take, captured in enumerate(options):
+            captured_encoding = encode_cards(captured)
 
-        row[2 * n : 3 * n] = table_base
-        if captured:
-            for c in captured:
-                row[2 * n + CARD_INDEX[c]] = 0.0
-        else:
-            row[2 * n + play_idx] = 1.0
+            resulting_table = set(env.table)
+            if captured:
+                resulting_table.difference_update(captured)
+            else:
+                resulting_table.add(card)
 
-        clears_table = bool(captured) and len(captured) == len(env.table)
-        row[3 * n] = float(clears_table and not game_finishes)
-
-        candidates.append(PlayCandidate(play_idx, take, row))
+            table_encoding = encode_cards(resulting_table)
+            makes_scopa = float(bool(captured) and not resulting_table and not game_finishes)
+            features = np.concatenate((
+                played_encoding,
+                captured_encoding,
+                table_encoding,
+                np.asarray([makes_scopa], dtype=np.float32),
+            ))
+            candidates.append(PlayCandidate(
+                play=CARD_INDEX[card],
+                take=take,
+                features=features,
+            ))
 
     return candidates

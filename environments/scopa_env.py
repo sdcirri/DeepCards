@@ -32,7 +32,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
     ILLEGAL_PLAY_PENALTY = -1000.0
     OBSERVATION_PLANES = 5
-    EXTRA_OBSERVATIONS = 9
+    EXTRA_OBSERVATIONS = 10
 
     table: list[Card]
     last_winner: AgentId
@@ -166,7 +166,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             my_score.carte / 40, opp_score.carte / 40,
             my_score.denari / 10, opp_score.denari / 10,
             sum(my_score.primiera.values()) / 84, sum(opp_score.primiera.values()) / 84,
-            my_score.scope, opp_score.scope
+            my_score.scope, opp_score.scope,
+            0 if self.last_winner == 'p1' else 1
         ), dtype=np.float32)
 
         observation = np.concatenate((

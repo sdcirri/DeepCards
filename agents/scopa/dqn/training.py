@@ -1,7 +1,6 @@
 from typing import Any
 import random
 
-from numpy.typing import NDArray
 import numpy as np
 
 from torch import optim, nn
@@ -10,7 +9,7 @@ import torch
 from environments.scopa_env import AgentId
 from agents.agent import Cards2PAgent
 
-from .play_candidates import build_play_candidates, TakeStrategy, PlayCandidate, ACTION_FEATURE_DIM
+from .play_candidates import build_play_candidates, PlayCandidate, ACTION_FEATURE_DIM
 from .scopa_nn import ScopaNN, ScopaReplayBuffer, ScopaTransition
 
 from ...dqn import plot_losses
@@ -77,22 +76,25 @@ def train_step(
         dtype=torch.float32,
         device=device,
     )
-    next_candidate_features = torch.as_tensor(
-        np.stack([
-            transition.next_candidate_features
-            for transition in transitions
-        ]),
-        dtype=torch.float32,
-        device=device,
+    max_candidate_count = max(
+        transition.next_candidate_features.shape[0]
+        for transition in transitions
     )
-    next_candidate_mask = torch.as_tensor(
-        np.stack([
-            transition.next_candidate_mask
-            for transition in transitions
-        ]),
-        dtype=torch.bool,
-        device=device,
+
+    next_candidate_features_array = np.zeros(
+        (len(transitions), max_candidate_count, ACTION_FEATURE_DIM),
+        dtype=np.float32
     )
+    next_candidate_mask_array = np.zeros((len(transitions), max_candidate_count), dtype=np.bool_)
+
+    for row, transition in enumerate(transitions):
+        candidate_count = transition.next_candidate_features.shape[0]
+        next_candidate_features_array[row, :candidate_count] = transition.next_candidate_features
+        next_candidate_mask_array[row, :candidate_count] = transition.next_candidate_mask
+
+    next_candidate_features = torch.from_numpy(next_candidate_features_array).to(device)
+    next_candidate_mask = torch.from_numpy(next_candidate_mask_array).to(device)
+
     dones = torch.as_tensor(
         [transition.done for transition in transitions],
         dtype=torch.float32,
@@ -110,20 +112,14 @@ def train_step(
                 .expand(-1, candidate_count, -1)
                 .reshape(batch_size_ * candidate_count, -1)
         )
-        flattened_features = next_candidate_features.reshape(
-            batch_size_ * candidate_count,
-            feature_dim,
-        )
+        flattened_features = next_candidate_features.reshape(batch_size_ * candidate_count, feature_dim)
 
         online_next_q = online_net(
             expanded_next_states,
             flattened_features,
         ).reshape(batch_size_, candidate_count)
 
-        online_next_q = online_next_q.masked_fill(
-            ~next_candidate_mask,
-            -torch.inf,
-        )
+        online_next_q = online_next_q.masked_fill(~next_candidate_mask, -torch.inf)
         next_actions = online_next_q.argmax(dim=1)
 
         target_next_q = target_net(
@@ -151,12 +147,11 @@ def train_step(
     return loss.item()
 
 
-def pad_candidates(candidates: list[PlayCandidate]) -> tuple[NDArray[np.float32], NDArray[np.bool_]]:
-    features = np.zeros(
-        (3, ACTION_FEATURE_DIM),
-        dtype=np.float32,
-    )
-    mask = np.zeros(3, dtype=np.bool_)
+def pad_candidates(candidates: list[PlayCandidate]) -> tuple[np.ndarray, np.ndarray]:
+    candidate_count = max(1, len(candidates))
+
+    features = np.zeros((candidate_count, ACTION_FEATURE_DIM), dtype=np.float32)
+    mask = np.zeros(candidate_count, dtype=np.bool_)
 
     for index, candidate in enumerate(candidates):
         features[index] = candidate.features
@@ -172,7 +167,6 @@ def train(
         device: torch.device,
         training_opponents: list[Cards2PAgent],
         episodes_per_opponent: list[int],
-        take_strategy: TakeStrategy,
         verbose: bool = True
 ) -> ScopaNN:
     if len(training_opponents) != len(episodes_per_opponent):
@@ -205,7 +199,7 @@ def train(
                 obs = env.observe(whoami)
                 state, mask = obs['observation'], obs['play_mask']
 
-                candidates = build_play_candidates(env, whoami, take_strategy)
+                candidates = build_play_candidates(env, whoami)
                 chosen = choose_candidate(state, candidates, online_net, epsilon, device)
 
                 env.step((chosen.play, chosen.take))
@@ -224,7 +218,7 @@ def train(
 
                 next_obs = env.observe(whoami)
                 next_state = next_obs['observation']
-                next_candidates = [] if done else build_play_candidates(env, whoami, take_strategy)
+                next_candidates = [] if done else build_play_candidates(env, whoami)
                 next_features, next_candidate_mask = pad_candidates(next_candidates)
 
                 replay_buffer.add(ScopaTransition(
