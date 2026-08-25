@@ -39,17 +39,21 @@ def run_challenge(
         one_episode: Callable[[Cards2PAgent, Cards2PAgent, str | None], tuple[int, int]],
         render_mode: str | None
 ) -> tuple[int, int]:
+    def _limit_torch_threads() -> None:
+        import torch
+        torch.set_num_threads(1)
+
     # Render disables process parallelism (pygame is process-local).
     pool_size = 1 if render_mode is not None else os.cpu_count()
     chunk_size = max(1, episodes // (pool_size * 4))
 
-    with ProcessPoolExecutor(max_workers=pool_size) as executor:
+    with ProcessPoolExecutor(max_workers=pool_size, initializer=_limit_torch_threads) as executor:
         results = executor.map(
             one_episode,
             [agent1] * episodes,
             [agent2] * episodes,
             [render_mode] * episodes,
-            chunksize=chunk_size
+            chunksize=chunk_size,
         )
 
     points_1, points_2 = 0, 0
@@ -89,8 +93,7 @@ def run_human_challenge(
     title = f'{agent1.name} vs {agent2.name}'
     begin_parallel_session(kind, n_slots, title=title)
 
-    points_1 = 0
-    points_2 = 0
+    points_1, points_2 = 0, 0
 
     try:
         if parallel:
