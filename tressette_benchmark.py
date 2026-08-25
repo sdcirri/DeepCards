@@ -32,7 +32,8 @@ else:
         40,
         DQNAgent.device,
         [RandomAgent('p2'), GreedyAgent('p2'), PointsAwareGreedyAgent('p2')],
-        [2000, 2000, 15000],
+        [0.1, 0.2, 0.7],
+        50_000,
         False
     )
     torch.save(dqn_net.state_dict(), MODEL_PATH)

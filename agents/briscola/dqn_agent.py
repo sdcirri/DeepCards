@@ -24,7 +24,8 @@ def train(
         actions: int,
         device: torch.device,
         training_opponents: list[Cards2PAgent],
-        episodes_per_opponent: list[int],
+        opponents_distribution: list[float],
+        total_episodes: int,
         verbose: bool = True,
 ) -> CardNN:
     return dqn_train(
@@ -34,7 +35,8 @@ def train(
         OBS_DIM,
         device,
         training_opponents,
-        episodes_per_opponent,
+        opponents_distribution,
+        total_episodes,
         verbose,
     )
 
@@ -45,16 +47,18 @@ class DQNAgent(BaseDQNAgent):
             whoami: AgentId,
             training_env: Briscola2PEnv,
             training_opponents: list[Cards2PAgent],
-            episodes_per_opponent: list[int],
+            opponents_distribution: list[float],
+            total_episodes: int,
             verbose_training: bool = False,
     ) -> 'DQNAgent':
         net = train(
-                training_env,
-                whoami,
-                40,
-                DQNAgent.device,
-                training_opponents,
-                episodes_per_opponent,
-                verbose_training,
+            training_env,
+            whoami,
+            40,
+            DQNAgent.device,
+            training_opponents,
+            opponents_distribution,
+            total_episodes,
+            verbose_training,
         )
         return DQNAgent(whoami, net)

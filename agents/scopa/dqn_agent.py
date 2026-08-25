@@ -14,7 +14,7 @@ OBS_DIM = Scopa2PEnv.OBSERVATION_PLANES * len(DECK) + Scopa2PEnv.EXTRA_OBSERVATI
 
 class DQNAgent(BaseDQNAgent):
     """
-    Base DQN agent for Scopa
+    DQN agent for Scopa
     """
 
     def __init__(self, whoami: AgentId, net: ScopaNN) -> None:
