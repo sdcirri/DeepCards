@@ -228,7 +228,7 @@ def train(
                     device,
                 )
                 if verbose and total_steps % 1000 == 0:
-                    print(f'Episode: {episode}, Steps: {total_steps}, Loss: {loss}')
+                    print(f'Episode: {episode+1}, Steps: {total_steps}, Loss: {loss}')
                     losses.append(loss)
 
             if total_steps % target_update_frequency == 0:
