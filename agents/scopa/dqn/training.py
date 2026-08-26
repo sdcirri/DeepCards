@@ -109,10 +109,11 @@ def train_step(
 
 
 def pad_candidates(candidates: list[PlayCandidate]) -> tuple[np.ndarray, np.ndarray]:
-    MAX_CANDIDATES = 10
+    MAX_CANDIDATES = 15
 
     if len(candidates) > MAX_CANDIDATES:
-        print(f'Warning: more than {MAX_CANDIDATES} candidates ({candidates}), truncating')
+        print(f'Warning: more than {MAX_CANDIDATES} candidates ({len(candidates)}), truncating')
+        candidates = candidates[:MAX_CANDIDATES]
 
     features = np.zeros((MAX_CANDIDATES, ACTION_FEATURE_DIM), dtype=np.float32)
     mask = np.zeros(MAX_CANDIDATES, dtype=np.bool_)
