@@ -62,26 +62,9 @@ def train_step(
     action_features = cast(torch.Tensor, batch['action_features']).to(device)
     rewards = cast(torch.Tensor, batch['reward']).to(device)
     next_states = cast(torch.Tensor, batch['next_state']).to(device)
+    next_candidate_features = cast(torch.Tensor, batch['next_candidate_features']).to(device)
+    next_candidate_mask = cast(torch.Tensor, batch['next_candidate_mask']).to(device)
     dones = cast(torch.Tensor, batch['done']).to(device)
-
-    max_candidate_count = max(
-        transition['next_candidate_features'].shape[0]
-        for transition in batch
-    )
-
-    next_candidate_features_array = np.zeros(
-        (len(batch), max_candidate_count, ACTION_FEATURE_DIM),
-        dtype=np.float32
-    )
-    next_candidate_mask_array = np.zeros((len(batch), max_candidate_count), dtype=np.bool_)
-
-    for row, transition in enumerate(batch):
-        candidate_count = transition['next_candidate_features'].shape[0]
-        next_candidate_features_array[row, :candidate_count] = transition['next_candidate_features']
-        next_candidate_mask_array[row, :candidate_count] = transition['next_candidate_mask']
-
-    next_candidate_features = torch.from_numpy(next_candidate_features_array).to(device)
-    next_candidate_mask = torch.from_numpy(next_candidate_mask_array).to(device)
 
     chosen_q = online_net(states, action_features)
 
@@ -104,20 +87,16 @@ def train_step(
         online_next_q = online_next_q.masked_fill(~next_candidate_mask, -torch.inf)
         next_actions = online_next_q.argmax(dim=1)
 
-        target_next_q = target_net(
-            expanded_next_states,
-            flattened_features,
-        ).reshape(batch_size_, candidate_count)
-
-        best_next_q = target_next_q.gather(1, next_actions.unsqueeze(1)).squeeze(1)
-
+        batch_idx = torch.arange(batch_size_, device=device)
+        selected_features = next_candidate_features[batch_idx, next_actions]
+        best_next_q = target_net(next_states, selected_features)
         best_next_q = torch.where(
             next_candidate_mask.any(dim=1),
             best_next_q,
             torch.zeros_like(best_next_q),
         )
 
-        targets = rewards + gamma * best_next_q * (~dones).to(device)
+        targets = rewards + gamma * best_next_q * ~dones
 
     loss = nn.functional.smooth_l1_loss(chosen_q, targets)
 
@@ -130,7 +109,10 @@ def train_step(
 
 
 def pad_candidates(candidates: list[PlayCandidate]) -> tuple[np.ndarray, np.ndarray]:
-    MAX_CANDIDATES = 64
+    MAX_CANDIDATES = 10
+
+    if len(candidates) > MAX_CANDIDATES:
+        print(f'Warning: more than {MAX_CANDIDATES} candidates ({candidates}), truncating')
 
     features = np.zeros((MAX_CANDIDATES, ACTION_FEATURE_DIM), dtype=np.float32)
     mask = np.zeros(MAX_CANDIDATES, dtype=np.bool_)
@@ -165,7 +147,7 @@ def train(
         sampler=PrioritizedSampler(max_capacity=100_000, alpha=0.6, beta=0.4),
     )
 
-    batch_size = 256
+    batch_size = 128
     gamma = 0.99
     target_update_frequency = 1000
     total_steps = 0

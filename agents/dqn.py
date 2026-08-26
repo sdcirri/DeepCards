@@ -88,7 +88,7 @@ def train_step(
             best_next_q_values,
             torch.zeros_like(best_next_q_values),
         )
-        targets = rewards + gamma * best_next_q_values * (~dones).to(device)
+        targets = rewards + gamma * best_next_q_values * ~dones
 
     loss = nn.functional.smooth_l1_loss(chosen_q_values, targets)
     optimizer.zero_grad()
