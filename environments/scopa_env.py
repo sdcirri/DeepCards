@@ -175,12 +175,12 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
     def step(self, action: Action | None) -> None:
         agent = self.agent_selection
 
-        if action is None:
-            raise ValueError('A live agent must provide an action')
-
         if self.terminations[agent] or self.truncations[agent]:
             self._was_dead_step(action)
             return
+
+        if action is None:
+            raise ValueError('A live agent must provide an action')
 
         self._cumulative_rewards[agent] = 0.0
         self._clear_rewards()

@@ -14,6 +14,7 @@ from environments.cards_env import (
     Cards2PEnv,
     LeadPlay,
     card_from_action,
+    encode_cards,
     wrap_cards_env,
 )
 from environments.scopa_env import Scopa2PEnv, env as scopa_env, raw_env as scopa_raw
@@ -27,7 +28,6 @@ from games.scopa import (
     find_takes,
     legal_plays as scopa_legal_plays,
     play_value,
-    sorted_legal_plays,
 )
 from games.tressette import (
     TressetteHand,
@@ -212,13 +212,10 @@ def test_scopa_find_takes_and_legal() -> None:
     assert all(p[0].number != 5 or len(p[1]) == 1 for p in plays)
     # no take → empty capture list
     lonely = scopa_legal_plays((_c(Suit.SPADE, 1),), (_c(Suit.DENARI, 10),))
-    assert ( _c(Suit.SPADE, 1), [] ) in lonely
+    assert (_c(Suit.SPADE, 1), []) in lonely
 
-    sorted_plays = sorted_legal_plays(hand, table2)
-    assert sorted_plays == sorted(
-        plays,
-        key=lambda pt: (CARD_INDEX[pt[0]], tuple(sorted(CARD_INDEX[c] for c in pt[1]))),
-    )
+    hand_obj = ScopaHand(list(hand))
+    assert hand_obj.scopa_legal_plays(list(table2)) == plays
 
 
 def test_scopa_hand_scoring() -> None:
@@ -278,6 +275,19 @@ def test_card_from_action() -> None:
         card_from_action(-1)
     with pytest.raises(ValueError):
         card_from_action(40)
+
+
+def test_encode_cards() -> None:
+    empty = encode_cards([])
+    assert empty.shape == (len(DECK),)
+    assert empty.dtype == np.float32
+    assert empty.sum() == 0
+
+    cards = [_c(Suit.DENARI, 1), _c(Suit.COPPE, 2)]
+    encoded = encode_cards(cards)
+    assert encoded[CARD_INDEX[cards[0]]] == 1.0
+    assert encoded[CARD_INDEX[cards[1]]] == 1.0
+    assert encoded.sum() == 2.0
 
 
 def test_cards_env_init_validation() -> None:
@@ -611,8 +621,11 @@ def test_scopa_init_validation_and_spaces() -> None:
     assert raw.observation_space('p1') is not None
     assert raw.action_space('p1').spaces[0].n == len(DECK)
     assert raw.action_space('p1').spaces[1].n == 10
-    assert obs['observation'].shape == (expected,)
-    assert 'play_mask' in obs and 'take_mask' in obs
+    assert obs.shape == (expected,)
+    assert obs.dtype == np.float32
+    extras = obs[-Scopa2PEnv.EXTRA_OBSERVATIONS:]
+    assert extras[0] == pytest.approx(len(raw.pile) / 30)
+    assert extras[-1] in (0.0, 1.0)  # last_winner flag
     assert 'table=' in (raw.render() or '')
     raw.close()
 
