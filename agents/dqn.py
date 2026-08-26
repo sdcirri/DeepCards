@@ -1,17 +1,15 @@
-from dataclasses import dataclass
 import matplotlib.pyplot as plt
-from collections import deque
-from typing import Any
+from typing import Any, cast
 import random
 
-from numpy.typing import NDArray
 import numpy as np
 
+from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer, PrioritizedSampler
+from tensordict import TensorDict
 import torch.optim as optim
 import torch.nn as nn
 import torch
 
-from environments.cards_env import Action
 from games.deck import DECK
 
 from .agent import AgentId, Cards2PAgent
@@ -34,37 +32,10 @@ class CardNN(nn.Module):
         return self.net(x)
 
 
-@dataclass(frozen=True, slots=True)
-class Transition:
-    state: NDArray[np.float32]
-    action: Action
-    reward: float
-    next_state: NDArray[np.float32]
-    next_mask: NDArray[np.float32]
-    done: bool
-
-
-class ReplayBuffer:
-    def __init__(self, capacity: int) -> None:
-        self.buffer: deque[Transition] = deque(maxlen=capacity)
-
-    def add(self, transition: Transition) -> None:
-        self.buffer.append(transition)
-
-    def sample(self, batch_size: int) -> list[Transition]:
-        return random.sample(self.buffer, batch_size)
-
-    def clear(self) -> None:
-        self.buffer.clear()
-
-    def __len__(self) -> int:
-        return len(self.buffer)
-
-
 def choose_action(
     state: np.ndarray,
     mask: np.ndarray,
-    net: CardNN,
+    net: nn.Module,
     epsilon: float,
     device: torch.device,
 ) -> int:
@@ -88,46 +59,19 @@ def train_step(
     online_net: nn.Module,
     target_net: nn.Module,
     optimizer: optim.Optimizer,
-    replay_buffer: ReplayBuffer,
+    replay_buffer: TensorDictReplayBuffer,
     batch_size: int,
     gamma: float,
     device: torch.device,
 ) -> float:
-    transitions = replay_buffer.sample(batch_size)
+    batch = replay_buffer.sample(batch_size)
 
-    states = torch.as_tensor(
-        np.stack([transition.state for transition in transitions]),
-        dtype=torch.float32,
-        device=device,
-    )
-    actions = torch.as_tensor(
-        np.stack([transition.action for transition in transitions]),
-        dtype=torch.int32,
-        device=device,
-    )
-    rewards = torch.as_tensor(
-        [transition.reward for transition in transitions],
-        dtype=torch.float32,
-        device=device,
-    )
-    next_states = torch.as_tensor(
-        np.stack([transition.next_state for transition in transitions]),
-        dtype=torch.float32,
-        device=device,
-    )
-    next_masks = torch.as_tensor(
-        np.stack([
-            transition.next_mask
-            for transition in transitions
-        ]),
-        dtype=torch.float32,
-        device=device,
-    )
-    dones = torch.as_tensor(
-        [transition.done for transition in transitions],
-        dtype=torch.float32,
-        device=device,
-    )
+    states = cast(torch.Tensor, batch['state']).to(device)
+    actions = cast(torch.Tensor, batch['action']).to(device)
+    rewards = cast(torch.Tensor, batch['reward']).to(device)
+    next_states = cast(torch.Tensor, batch['next_state']).to(device)
+    next_masks = cast(torch.Tensor, batch['next_mask']).to(device)
+    dones = cast(torch.Tensor, batch['done']).to(device)
 
     q_values = online_net(states)
     chosen_q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
@@ -144,7 +88,7 @@ def train_step(
             best_next_q_values,
             torch.zeros_like(best_next_q_values),
         )
-        targets = rewards + gamma * best_next_q_values * (1 - dones)
+        targets = rewards + gamma * best_next_q_values * (~dones).to(device)
 
     loss = nn.functional.smooth_l1_loss(chosen_q_values, targets)
     optimizer.zero_grad()
@@ -160,7 +104,7 @@ def plot_losses(losses: list[float]) -> None:
         return
 
     window = min(100, max(1, len(losses) // 10))
-    kernel = np.ones(window, dtype=np.float64) / window
+    kernel = np.ones(window, dtype=np.float64) / np.float64(window)
     smooth = np.convolve(losses, kernel, mode='valid')
     plt.plot(losses, alpha=0.25, label='batch loss')
     plt.plot(
@@ -193,9 +137,12 @@ def train(
     target_net.load_state_dict(online_net.state_dict())
 
     optimizer = optim.AdamW(online_net.parameters(), lr=1e-4)
-    replay_buffer = ReplayBuffer(capacity=100_000)
+    replay_buffer = TensorDictReplayBuffer(
+        storage=LazyTensorStorage(100_000),
+        sampler=PrioritizedSampler(max_capacity=100_000, alpha=0.6, beta=0.4),
+    )
 
-    batch_size = 64
+    batch_size = 128
     gamma = 0.99
     target_update_frequency = 1000
     total_steps = 0
@@ -235,9 +182,16 @@ def train(
             next_state = next_obs['observation']
             next_mask = next_obs['action_mask']
 
-            replay_buffer.add(Transition(
-                state=state, action=action, reward=reward,
-                next_state=next_state, next_mask=next_mask, done=done
+            replay_buffer.add(TensorDict(
+                {
+                    'state': torch.tensor(state, dtype=torch.float32),
+                    'action': torch.tensor(action, dtype=torch.int32),
+                    'reward': torch.tensor(reward, dtype=torch.float32),
+                    'next_state': torch.tensor(next_state, dtype=torch.float32),
+                    'next_mask': torch.tensor(next_mask, dtype=torch.bool),
+                    'done': torch.tensor(done, dtype=torch.bool),
+                },
+                batch_size=[]
             ))
             total_steps += 1
 
@@ -252,7 +206,7 @@ def train(
                     device,
                 )
                 if verbose and total_steps % 1000 == 0:
-                    print(f'Episode: {episode}, Steps: {total_steps}, Loss: {loss}')
+                    print(f'Episode: {episode+1}, Steps: {total_steps}, Loss: {loss}')
                     losses.append(loss)
 
             if total_steps % target_update_frequency == 0:

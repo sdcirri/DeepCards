@@ -1,6 +1,8 @@
 pettingzoo
 gymnasium
 numpy
-torch
 matplotlib
 pygame
+torch==2.12.1
+torchrl==0.13.3
+tensordict>=0.13.0,<0.14.0

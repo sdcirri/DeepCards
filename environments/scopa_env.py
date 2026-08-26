@@ -12,9 +12,10 @@ from pettingzoo import AECEnv
 from games.scopa import ScopaHand
 from games.deck import DECK, Card
 
-from .cards_env import AgentId, Observation, encode_cards
+from .cards_env import AgentId, encode_cards
 
 
+Observation: TypeAlias = np.ndarray
 Action: TypeAlias = tuple[int, int]
 
 
@@ -55,7 +56,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             agent: index
             for index, agent in enumerate(self.possible_agents)
         }
-        self.first_at_hand = self.np_random.choice(self.possible_agents)
+        self.first_at_hand = self.possible_agents[int(self.np_random.integers(0, 2))]
         self.last_winner = self.first_at_hand
 
         # Index of the "legal" array from scopa_legal_plays, which is sorted
@@ -69,16 +70,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         }
 
         self._observation_spaces = {
-            agent: spaces.Dict(
-                {
-                    'observation': spaces.Box(
-                        low=0.0, high=1.0,
-                        shape=(len(DECK) * self.OBSERVATION_PLANES + self.EXTRA_OBSERVATIONS,),
-                        dtype=np.float32
-                    ),
-                    'play_mask': spaces.MultiBinary(len(DECK)),
-                    'take_mask': spaces.MultiBinary(len(DECK))
-                }
+            agent: spaces.Box(
+                low=0.0, high=1.0,
+                shape=(len(DECK) * self.OBSERVATION_PLANES + self.EXTRA_OBSERVATIONS,),
+                dtype=np.float32
             )
             for agent in self.possible_agents
         }
@@ -95,10 +90,11 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.hands: dict[AgentId, ScopaHand] = {}
         self.pile: deque[Card] = deque()
         self.table: list[Card] = []
-        self.scores = {
-            'p1': 0,
-            'p2': 0,
-        }
+        self.scores = {'p1': 0, 'p2': 0}
+
+    @staticmethod
+    def _opponent(agent: AgentId) -> AgentId:
+        return 'p2' if agent == 'p1' else 'p1'
 
     def _deal(self, shuffled_cards: list[Card]) -> None:
         self.hands = {
@@ -137,10 +133,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         indices = self.np_random.permutation(len(DECK))
         shuffled_cards = [DECK[int(index)] for index in indices]
 
-        self.scores = {
-            'p1': 0,
-            'p2': 0,
-        }
+        self.scores = {'p1': 0, 'p2': 0}
         self.table = []
         self._deal(shuffled_cards)
 
@@ -159,7 +152,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         taken_encoding = encode_cards(hand.taken_cards)
         opponent_taken_encoding = encode_cards(hand.opponent_taken_cards)
 
-        opp = 'p1' if agent == 'p2' else 'p2'
+        opp = self._opponent(agent)
         my_score, opp_score = self.hands[agent].score, self.hands[opp].score
         extra_obs = np.fromiter((
             len(self.pile) / 30,        # 6 cards have been dealt + 4 put on the table
@@ -170,7 +163,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             0 if self.last_winner == 'p1' else 1
         ), dtype=np.float32)
 
-        observation = np.concatenate((
+        return np.concatenate((
             hand_encoding,
             seen_encoding,
             table_encoding,
@@ -179,21 +172,15 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             extra_obs
         ))
 
-        return {
-            'observation': observation,
-            'play_mask': hand_encoding,
-            'take_mask': table_encoding
-        }
-
     def step(self, action: Action | None) -> None:
         agent = self.agent_selection
+
+        if action is None:
+            raise ValueError('A live agent must provide an action')
 
         if self.terminations[agent] or self.truncations[agent]:
             self._was_dead_step(action)
             return
-
-        if action is None:
-            raise ValueError('A live agent must provide an action')
 
         self._cumulative_rewards[agent] = 0.0
         self._clear_rewards()
@@ -202,7 +189,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         options = [opt[1] for opt in self.hands[agent].scopa_legal_plays(self.table) if opt[0] == played_card]
         taken_cards = options[action[1]]
 
-        opponent = 'p2' if agent == 'p1' else 'p1'
+        opponent = self._opponent(agent)
         self.hands[agent].play_card(played_card)
         self.hands[opponent].see_card(played_card)
 
@@ -250,7 +237,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         """
         Deal three cards to each player from the stock; table is unchanged.
         """
-        for agent in (self.first_at_hand, 'p1' if self.first_at_hand == 'p2' else 'p2'):
+        following = self._opponent(self.first_at_hand)
+        for agent in (self.first_at_hand, following):
             for _ in range(3):
                 if not self.pile:
                     raise RuntimeError('Stock exhausted mid-deal')
@@ -265,7 +253,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
 
     def _update_infos(self) -> None:
         for agent in self.agents:
-            opponent = 'p2' if agent == 'p1' else 'p1'
+            opponent = self._opponent(agent)
             self.infos[agent] = {
                 **self._score_info(agent, opponent),
                 'pile_size': len(self.pile),

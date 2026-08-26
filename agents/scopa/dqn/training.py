@@ -1,15 +1,17 @@
-from typing import Any
+from typing import Any, cast
 import random
 
 import numpy as np
 
+from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer, PrioritizedSampler
+from tensordict import TensorDict
 from torch import optim, nn
 import torch
 
 from environments.scopa_env import AgentId
 
 from .play_candidates import build_play_candidates, PlayCandidate, ACTION_FEATURE_DIM
-from .scopa_nn import ScopaNN, ScopaReplayBuffer, ScopaTransition
+from .scopa_nn import ScopaNN
 
 from ...agent import Cards2PAgent
 from ...dqn import plot_losses
@@ -49,57 +51,37 @@ def train_step(
         online_net: ScopaNN,
         target_net: ScopaNN,
         optimizer: optim.Optimizer,
-        replay_buffer: ScopaReplayBuffer,
+        replay_buffer: TensorDictReplayBuffer,
         batch_size: int,
         gamma: float,
         device: torch.device,
 ) -> float:
-    transitions = replay_buffer.sample(batch_size)
+    batch = replay_buffer.sample(batch_size)
 
-    states = torch.as_tensor(
-        np.stack([transition.state for transition in transitions]),
-        dtype=torch.float32,
-        device=device,
-    )
-    action_features = torch.as_tensor(
-        np.stack([transition.action_features for transition in transitions]),
-        dtype=torch.float32,
-        device=device,
-    )
-    rewards = torch.as_tensor(
-        [transition.reward for transition in transitions],
-        dtype=torch.float32,
-        device=device,
-    )
-    next_states = torch.as_tensor(
-        np.stack([transition.next_state for transition in transitions]),
-        dtype=torch.float32,
-        device=device,
-    )
+    states = cast(torch.Tensor, batch['state']).to(device)
+    action_features = cast(torch.Tensor, batch['action_features']).to(device)
+    rewards = cast(torch.Tensor, batch['reward']).to(device)
+    next_states = cast(torch.Tensor, batch['next_state']).to(device)
+    dones = cast(torch.Tensor, batch['done']).to(device)
+
     max_candidate_count = max(
-        transition.next_candidate_features.shape[0]
-        for transition in transitions
+        transition['next_candidate_features'].shape[0]
+        for transition in batch
     )
 
     next_candidate_features_array = np.zeros(
-        (len(transitions), max_candidate_count, ACTION_FEATURE_DIM),
+        (len(batch), max_candidate_count, ACTION_FEATURE_DIM),
         dtype=np.float32
     )
-    next_candidate_mask_array = np.zeros((len(transitions), max_candidate_count), dtype=np.bool_)
+    next_candidate_mask_array = np.zeros((len(batch), max_candidate_count), dtype=np.bool_)
 
-    for row, transition in enumerate(transitions):
-        candidate_count = transition.next_candidate_features.shape[0]
-        next_candidate_features_array[row, :candidate_count] = transition.next_candidate_features
-        next_candidate_mask_array[row, :candidate_count] = transition.next_candidate_mask
+    for row, transition in enumerate(batch):
+        candidate_count = transition['next_candidate_features'].shape[0]
+        next_candidate_features_array[row, :candidate_count] = transition['next_candidate_features']
+        next_candidate_mask_array[row, :candidate_count] = transition['next_candidate_mask']
 
     next_candidate_features = torch.from_numpy(next_candidate_features_array).to(device)
     next_candidate_mask = torch.from_numpy(next_candidate_mask_array).to(device)
-
-    dones = torch.as_tensor(
-        [transition.done for transition in transitions],
-        dtype=torch.float32,
-        device=device,
-    )
 
     chosen_q = online_net(states, action_features)
 
@@ -135,7 +117,7 @@ def train_step(
             torch.zeros_like(best_next_q),
         )
 
-        targets = rewards + gamma * best_next_q * (1 - dones)
+        targets = rewards + gamma * best_next_q * (~dones).to(device)
 
     loss = nn.functional.smooth_l1_loss(chosen_q, targets)
 
@@ -148,10 +130,10 @@ def train_step(
 
 
 def pad_candidates(candidates: list[PlayCandidate]) -> tuple[np.ndarray, np.ndarray]:
-    candidate_count = max(1, len(candidates))
+    MAX_CANDIDATES = 64
 
-    features = np.zeros((candidate_count, ACTION_FEATURE_DIM), dtype=np.float32)
-    mask = np.zeros(candidate_count, dtype=np.bool_)
+    features = np.zeros((MAX_CANDIDATES, ACTION_FEATURE_DIM), dtype=np.float32)
+    mask = np.zeros(MAX_CANDIDATES, dtype=np.bool_)
 
     for index, candidate in enumerate(candidates):
         features[index] = candidate.features
@@ -178,9 +160,12 @@ def train(
     target_net.load_state_dict(online_net.state_dict())
 
     optimizer = optim.AdamW(online_net.parameters(), lr=1e-4)
-    replay_buffer = ScopaReplayBuffer(capacity=100_000)
+    replay_buffer = TensorDictReplayBuffer(
+        storage=LazyTensorStorage(100_000),
+        sampler=PrioritizedSampler(max_capacity=100_000, alpha=0.6, beta=0.4),
+    )
 
-    batch_size = 64
+    batch_size = 256
     gamma = 0.99
     target_update_frequency = 1000
     total_steps = 0
@@ -196,9 +181,7 @@ def train(
                 env.step(opponent.step(env))
                 continue
 
-            obs = env.observe(whoami)
-            state, mask = obs['observation'], obs['play_mask']
-
+            state = env.observe(whoami)
             candidates = build_play_candidates(env, whoami)
             chosen = choose_candidate(state, candidates, online_net, epsilon, device)
 
@@ -216,15 +199,21 @@ def train(
                 reward += float(env.rewards[whoami])
                 done = env.terminations[whoami]
 
-            next_obs = env.observe(whoami)
-            next_state = next_obs['observation']
+            next_state = env.observe(whoami)
             next_candidates = [] if done else build_play_candidates(env, whoami)
             next_features, next_candidate_mask = pad_candidates(next_candidates)
 
-            replay_buffer.add(ScopaTransition(
-                state=state, action_features=chosen.features, reward=reward,
-                next_state=next_state, next_candidate_features=next_features,
-                next_candidate_mask=next_candidate_mask, done=done
+            replay_buffer.add(TensorDict(
+                {
+                    'state': torch.tensor(state, dtype=torch.float32),
+                    'action_features': torch.tensor(chosen.features, dtype=torch.float32),
+                    'reward': torch.tensor(reward, dtype=torch.float32),
+                    'next_state': torch.tensor(next_state, dtype=torch.float32),
+                    'next_candidate_features': torch.tensor(next_features, dtype=torch.float32),
+                    'next_candidate_mask': torch.tensor(next_candidate_mask, dtype=torch.bool),
+                    'done': torch.tensor(done, dtype=torch.bool),
+                },
+                batch_size=[]
             ))
             total_steps += 1
 

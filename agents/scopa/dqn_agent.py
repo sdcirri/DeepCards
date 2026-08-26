@@ -24,11 +24,9 @@ class DQNAgent(BaseDQNAgent):
         if env.agent_selection != self.whoami:
             return None
 
-        obs = env.observe(self.whoami)
-        candidates = build_play_candidates(env, self.whoami)
         candidate = choose_candidate(
-                obs['observation'],
-                candidates,
+                env.observe(self.whoami),
+                build_play_candidates(env, self.whoami),
                 self.net,
                 0,
                 self.device
