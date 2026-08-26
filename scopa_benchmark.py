@@ -18,52 +18,57 @@ from agents.scopa.agent import challenge
 
 AgentFactory = Callable[[AgentId], Cards2PAgent]
 
-
 MODEL_PATH = Path('scopa_play_dqn_net.pt')
 
-print('Initializing agents ...')
 
-if MODEL_PATH.exists():
-    print(f'Loading model from {MODEL_PATH}')
-    play_dqn_net = ScopaNN(OBS_DIM).to(DQNAgent.device)
-    play_dqn_net.load_state_dict(torch.load(MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
-    play_dqn_net.eval()
-else:
-    print('No saved models found, training ...')
-    play_dqn_net = train(
-        env_factory(render_mode=None),
-        'p1',
-        OBS_DIM,
-        DQNAgent.device,
-        [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
-        [0.1, 0.45, 0.45],
-        100_000,
-        True
-    )
-    torch.save(play_dqn_net.state_dict(), MODEL_PATH)
-    print(f'Saved model to {MODEL_PATH}')
+def main():
+    print('Initializing agents ...')
+
+    if MODEL_PATH.exists():
+        print(f'Loading model from {MODEL_PATH}')
+        play_dqn_net = ScopaNN(OBS_DIM).to(DQNAgent.device)
+        play_dqn_net.load_state_dict(torch.load(MODEL_PATH, map_location=DQNAgent.device, weights_only=True))
+        play_dqn_net.eval()
+    else:
+        print('No saved models found, training ...')
+        play_dqn_net = train(
+            env_factory(render_mode=None),
+            'p1',
+            OBS_DIM,
+            DQNAgent.device,
+            [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
+            [0.1, 0.45, 0.45],
+            100_000,
+            True
+        )
+        torch.save(play_dqn_net.state_dict(), MODEL_PATH)
+        print(f'Saved model to {MODEL_PATH}')
 
 
-agent_factories: list[tuple[str, AgentFactory]] = [
-    ('Random', lambda whoami: RandomAgent(whoami)),
-    ('Greedy', lambda whoami: GreedyAgent(whoami)),
-    ('Value-Aware Greedy', lambda whoami: ValueAwareGreedyAgent(whoami)),
-    ('DQN', lambda whoami: DQNAgent(whoami, play_dqn_net)),
-]
+    agent_factories: list[tuple[str, AgentFactory]] = [
+        ('Random', lambda whoami: RandomAgent(whoami)),
+        ('Greedy', lambda whoami: GreedyAgent(whoami)),
+        ('Value-Aware Greedy', lambda whoami: ValueAwareGreedyAgent(whoami)),
+        ('DQN', lambda whoami: DQNAgent(whoami, play_dqn_net)),
+    ]
 
-EPISODES = 10_000
-if len(argv) > 1:
-    EPISODES = int(argv[1])
+    EPISODES = 10_000
+    if len(argv) > 1:
+        EPISODES = int(argv[1])
 
-render_mode = None
-if len(argv) > 2:
-    render_mode = argv[2]
+    render_mode = None
+    if len(argv) > 2:
+        render_mode = argv[2]
 
-for i, (name1, make1) in enumerate(agent_factories):
-    for name2, make2 in agent_factories[i:]:
-        agent1, agent2 = make1('p1'), make2('p2')
-        print(f'Starting match: {agent1.name} [p1] vs {agent2.name} [p2], {EPISODES} episodes')
-        score1, score2 = challenge(agent1, agent2, EPISODES, render_mode)
+    for i, (name1, make1) in enumerate(agent_factories):
+        for name2, make2 in agent_factories[i:]:
+            agent1, agent2 = make1('p1'), make2('p2')
+            print(f'Starting match: {agent1.name} [p1] vs {agent2.name} [p2], {EPISODES} episodes')
+            score1, score2 = challenge(agent1, agent2, EPISODES, render_mode)
 
-        print(f'Agent 1: {agent1.name}: avg score: {score1 / EPISODES:.4f}')
-        print(f'Agent 2: {agent2.name}: avg score: {score2 / EPISODES:.4f}')
+            print(f'Agent 1: {agent1.name}: avg score: {score1 / EPISODES:.4f}')
+            print(f'Agent 2: {agent2.name}: avg score: {score2 / EPISODES:.4f}')
+
+
+if __name__ == '__main__':
+    main()

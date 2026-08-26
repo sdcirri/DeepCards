@@ -32,6 +32,11 @@ def challenge_step(env: Any, agent1: Cards2PAgent, agent2: Cards2PAgent) -> None
             env.step(agent2.step(env))
 
 
+def _limit_torch_threads() -> None:
+    import torch
+    torch.set_num_threads(1)
+
+
 def run_challenge(
         agent1: Cards2PAgent,
         agent2: Cards2PAgent,
@@ -39,10 +44,6 @@ def run_challenge(
         one_episode: Callable[[Cards2PAgent, Cards2PAgent, str | None], tuple[int, int]],
         render_mode: str | None
 ) -> tuple[int, int]:
-    def _limit_torch_threads() -> None:
-        import torch
-        torch.set_num_threads(1)
-
     # Render disables process parallelism (pygame is process-local).
     pool_size = 1 if render_mode is not None else os.cpu_count()
     chunk_size = max(1, episodes // (pool_size * 4))
