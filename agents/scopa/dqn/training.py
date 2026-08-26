@@ -109,7 +109,7 @@ def train_step(
 
 
 def pad_candidates(candidates: list[PlayCandidate]) -> tuple[np.ndarray, np.ndarray]:
-    MAX_CANDIDATES = 15
+    MAX_CANDIDATES = 32
 
     if len(candidates) > MAX_CANDIDATES:
         print(f'Warning: more than {MAX_CANDIDATES} candidates ({len(candidates)}), truncating')
