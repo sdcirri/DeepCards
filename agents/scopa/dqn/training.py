@@ -1,9 +1,10 @@
 from typing import Any, cast
 import random
+import time
 
 import numpy as np
 
-from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer, PrioritizedSampler
+from torchrl.data import LazyTensorStorage, TensorDictPrioritizedReplayBuffer
 from tensordict import TensorDict
 from torch import optim, nn
 import torch
@@ -51,7 +52,7 @@ def train_step(
         online_net: ScopaNN,
         target_net: ScopaNN,
         optimizer: optim.Optimizer,
-        replay_buffer: TensorDictReplayBuffer,
+        replay_buffer: TensorDictPrioritizedReplayBuffer,
         batch_size: int,
         gamma: float,
         device: torch.device,
@@ -65,6 +66,7 @@ def train_step(
     next_candidate_features = cast(torch.Tensor, batch['next_candidate_features']).to(device)
     next_candidate_mask = cast(torch.Tensor, batch['next_candidate_mask']).to(device)
     dones = cast(torch.Tensor, batch['done']).to(device)
+    weights = cast(torch.Tensor, batch['priority_weight']).to(device)
 
     chosen_q = online_net(states, action_features)
 
@@ -98,7 +100,11 @@ def train_step(
 
         targets = rewards + gamma * best_next_q * ~dones
 
-    loss = nn.functional.smooth_l1_loss(chosen_q, targets)
+    td_error = targets - chosen_q
+    element_loss = nn.functional.smooth_l1_loss(chosen_q, targets, reduction='none')
+    loss = (weights * element_loss).mean()
+    batch['td_error'] = td_error.detach().abs().cpu()
+    replay_buffer.update_tensordict_priority(batch)
 
     optimizer.zero_grad()
     loss.backward()
@@ -138,22 +144,28 @@ def train(
     if len(training_opponents) != len(opponents_distribution):
         raise RuntimeError('Length mismatch between training_opponents and opponents_distribution')
 
+    # MLPs this small are only penalized by multithreading overhead
+    torch.set_num_threads(1)
+
     online_net = ScopaNN(obs_dim).to(device)
     target_net = ScopaNN(obs_dim).to(device)
     target_net.load_state_dict(online_net.state_dict())
 
     optimizer = optim.AdamW(online_net.parameters(), lr=1e-4)
-    replay_buffer = TensorDictReplayBuffer(
+    replay_buffer = TensorDictPrioritizedReplayBuffer(
         storage=LazyTensorStorage(100_000),
-        sampler=PrioritizedSampler(max_capacity=100_000, alpha=0.6, beta=0.4),
+        alpha=0.6, beta=0.4, eps=1e-6,
+        priority_key='td_error'
     )
 
-    batch_size = 128
+    batch_size = 256
     gamma = 0.99
     target_update_frequency = 1000
     total_steps = 0
     losses: list[float] = []
-    epsilon, epsilon_min, epsilon_decay = 1.0, 0.05, 0.995
+    epsilon_start, epsilon_min, epsilon_decay_steps = 1.0, 0.05, 200_000
+    epsilon = epsilon_start
+    train_start = time.time()
 
     for episode in range(total_episodes):
         env.reset()
@@ -195,6 +207,7 @@ def train(
                     'next_candidate_features': torch.tensor(next_features, dtype=torch.float32),
                     'next_candidate_mask': torch.tensor(next_candidate_mask, dtype=torch.bool),
                     'done': torch.tensor(done, dtype=torch.bool),
+                    'td_error': torch.tensor(1.0)
                 },
                 batch_size=[]
             ))
@@ -211,13 +224,13 @@ def train(
                     device,
                 )
                 if verbose and total_steps % 1000 == 0:
-                    print(f'Episode: {episode+1}, Steps: {total_steps}, Loss: {loss}')
+                    print(f'Episode: {episode+1}, Steps: {total_steps}, Loss: {loss}, Time: {time.time() - train_start:.4f}s')
                     losses.append(loss)
 
             if total_steps % target_update_frequency == 0:
                 target_net.load_state_dict(online_net.state_dict())
 
-        epsilon = max(epsilon_min, epsilon * epsilon_decay)
+        epsilon = max(epsilon_min, epsilon_start - ((epsilon_start - epsilon_min) * total_steps / epsilon_decay_steps))
 
     if verbose:
         print(f'Training done, avg loss: {sum(losses) / len(losses) if losses else float("nan")}')
