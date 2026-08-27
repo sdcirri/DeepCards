@@ -206,7 +206,7 @@ def train(
             ))
             total_steps += 1
 
-            if len(replay_buffer) >= batch_size:
+            if len(replay_buffer) >= batch_size * 10 and total_steps % 4 == 0:
                 loss = train_step(
                     online_net,
                     target_net,

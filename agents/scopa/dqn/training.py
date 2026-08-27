@@ -155,7 +155,7 @@ def train(
         priority_key='td_error'
     )
 
-    batch_size = 256
+    batch_size = 128
     gamma = 0.99
     target_update_frequency = 1000
     total_steps = 0
@@ -210,7 +210,7 @@ def train(
             ))
             total_steps += 1
 
-            if len(replay_buffer) >= batch_size:
+            if len(replay_buffer) >= batch_size * 10 and total_steps % 4 == 0:
                 loss = train_step(
                     online_net,
                     target_net,
