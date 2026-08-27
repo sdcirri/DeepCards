@@ -8,9 +8,11 @@ class ScopaNN(nn.Module):
     def __init__(self, observation_dim: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(observation_dim + ACTION_FEATURE_DIM, 256),
+            nn.Linear(observation_dim + ACTION_FEATURE_DIM, 512),
             nn.LeakyReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(512, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 256),
             nn.LeakyReLU(),
             nn.Linear(256, 128),
             nn.LeakyReLU(),
