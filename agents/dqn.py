@@ -139,9 +139,6 @@ def train(
     if len(training_opponents) != len(opponents_distribution):
         raise RuntimeError('Length mismatch between training_opponents and opponents_distribution')
 
-    # MLPs this small are only penalized by multithreading overhead
-    torch.set_num_threads(1)
-
     online_net = CardNN(obs_dim, actions).to(device)
     target_net = CardNN(obs_dim, actions).to(device)
     target_net.load_state_dict(online_net.state_dict())
