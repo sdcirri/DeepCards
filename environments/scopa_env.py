@@ -9,7 +9,7 @@ from gymnasium import spaces
 from pettingzoo.utils import wrappers
 from pettingzoo import AECEnv
 
-from games.scopa import ScopaHand
+from games.scopa import ScopaHand, card_value
 from games.deck import DECK, Card
 
 from .cards_env import AgentId, encode_cards
@@ -31,7 +31,6 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         'is_parallelizable': False,
     }
 
-    ILLEGAL_PLAY_PENALTY = -1000.0
     OBSERVATION_PLANES = 5
     EXTRA_OBSERVATIONS = 10
 
@@ -59,12 +58,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.first_at_hand = self.possible_agents[int(self.np_random.integers(0, 2))]
         self.last_winner = self.first_at_hand
 
-        # Index of the "legal" array from scopa_legal_plays, which is sorted
-        #   and only depends on the state
         self._action_spaces = {
             agent: spaces.Tuple((
                     spaces.Discrete(len(DECK)),
-                    spaces.Discrete(10)     # Arbitrary, in practice never exceeds 3 or 4
+                    spaces.Discrete(32)     # Arbitrary, in practice never exceeds 3 or 4, or ~16 with random agents spamming cards
                 ))
             for agent in self.possible_agents
         }
@@ -160,7 +157,7 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             my_score.denari / 10, opp_score.denari / 10,
             sum(my_score.primiera.values()) / 84, sum(opp_score.primiera.values()) / 84,
             my_score.scope, opp_score.scope,
-            0 if self.last_winner == 'p1' else 1
+            1 if self.last_winner == agent else 0
         ), dtype=np.float32)
 
         return np.concatenate((
@@ -193,20 +190,34 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
         self.hands[agent].play_card(played_card)
         self.hands[opponent].see_card(played_card)
 
+        self.rewards['p1'], self.rewards['p2'] = 0.0, 0.0
+
         if len(taken_cards) == 0:
             self.table.append(played_card)
+            self.rewards[agent] -= card_value(played_card)
+            self.rewards[opponent] += card_value(played_card)
         else:
-            self.hands[opponent].see_opponent_taken([played_card] + taken_cards)
+            all_taken = [played_card] + taken_cards
+            self.hands[opponent].see_opponent_taken(all_taken)
             for card in taken_cards:
                 self.table.remove(card)
             if len(self.table) == 0 and not self._game_finished():
                 # Last one does not count as scopa!
                 self.hands[agent].scopa()
-            self.hands[agent].update_score([played_card, *taken_cards])
+                self.rewards[agent] += 1
+                self.rewards[opponent] -= 1
+
+            self.hands[agent].update_score(all_taken)
             self.last_winner = agent
+            take_value = sum(card_value(c) for c in all_taken)
+            self.rewards[agent] += take_value
+            self.rewards[opponent] -= take_value
 
         if self._game_finished():
             self.hands[self.last_winner].update_score(self.table)
+            take_value = sum(card_value(c) for c in self.table)
+            self.rewards[self.last_winner] += take_value
+            self.rewards[self._opponent(self.last_winner)] -= take_value
             self.table.clear()
 
             p1_primiera, p2_primiera = sum(self.hands['p1'].score.primiera.values()), sum(self.hands['p2'].score.primiera.values())
@@ -215,12 +226,8 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             self.scores['p2'] = self.hands['p2'].get_score(p1_primiera)
             self.terminations = {'p1': True, 'p2': True}
 
-            delta = self.hands['p1'].get_score(p2_primiera) - self.hands['p2'].get_score(p1_primiera)
-            self.rewards['p1'], self.rewards['p2'] = delta, -delta
-
             self._deads_step_first()
         else:
-            self.rewards = {'p1': 0.0, 'p2': 0.0}
             self.agent_selection = opponent
             # After both players have spent their 3 cards,
             #   deal 3 more each from the stock
