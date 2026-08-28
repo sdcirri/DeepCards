@@ -18,7 +18,7 @@ from agents.scopa.agent import challenge
 
 AgentFactory = Callable[[AgentId], Cards2PAgent]
 
-MODEL_PATH = Path('scopa_play_dqn_net.pt')
+MODEL_PATH = Path('scopa_dqn_net.pt')
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
             DQNAgent.device,
             [RandomAgent('p2'), GreedyAgent('p2'), ValueAwareGreedyAgent('p2')],
             [0.1, 0.45, 0.45],
-            50_000,
+            100_000,
             True
         )
         torch.save(play_dqn_net.state_dict(), MODEL_PATH)
