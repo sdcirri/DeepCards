@@ -226,6 +226,10 @@ class Scopa2PEnv(AECEnv[AgentId, Observation, Action]):
             self.scores['p2'] = self.hands['p2'].get_score(p1_primiera)
             self.terminations = {'p1': True, 'p2': True}
 
+            delta = self.scores['p1'] - self.scores['p2']
+            self.rewards['p1'] += delta
+            self.rewards['p2'] -= delta
+
             self._deads_step_first()
         else:
             self.agent_selection = opponent
