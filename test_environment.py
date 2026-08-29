@@ -620,7 +620,7 @@ def test_scopa_init_validation_and_spaces() -> None:
     )
     assert raw.observation_space('p1') is not None
     assert raw.action_space('p1').spaces[0].n == len(DECK)
-    assert raw.action_space('p1').spaces[1].n == 10
+    assert raw.action_space('p1').spaces[1].n == 32
     assert obs.shape == (expected,)
     assert obs.dtype == np.float32
     extras = obs[-Scopa2PEnv.EXTRA_OBSERVATIONS:]
@@ -688,6 +688,7 @@ def test_scopa_capture_and_scopa_point() -> None:
     raw = scopa_raw()
     raw.reset(seed=10)
     agent = raw.agent_selection
+    opponent = 'p2' if agent == 'p1' else 'p1'
     # Rebuild a controllable position: one card on table matching hand
     table_card = _c(Suit.DENARI, 4)
     play_card = _c(Suit.COPPE, 4)
@@ -703,6 +704,54 @@ def test_scopa_capture_and_scopa_point() -> None:
     raw.step((CARD_INDEX[play_card], 0))
     assert raw.hands[agent].score.scope == before + 1
     assert table_card not in raw.table
+    take_value = card_value(play_card) + card_value(table_card)
+    expected = 1.0 + take_value
+    assert raw.rewards[agent] == pytest.approx(expected)
+    assert raw.rewards[opponent] == pytest.approx(-expected)
+    assert raw.rewards['p1'] + raw.rewards['p2'] == pytest.approx(0.0)
+
+
+def test_scopa_dump_reward() -> None:
+    raw = scopa_raw()
+    raw.reset(seed=5)
+    agent = raw.agent_selection
+    opponent = 'p2' if agent == 'p1' else 'p1'
+    play_card = _c(Suit.SPADE, 1)
+    raw.table = [_c(Suit.DENARI, 10)]
+    raw.hands[agent].cards = [play_card]
+    raw.hands[agent].seen.update(raw.table)
+    raw.hands[agent].seen.add(play_card)
+    raw.step((CARD_INDEX[play_card], 0))
+    assert play_card in raw.table
+    value = card_value(play_card)
+    assert raw.rewards[agent] == pytest.approx(-value)
+    assert raw.rewards[opponent] == pytest.approx(value)
+    assert raw.rewards['p1'] + raw.rewards['p2'] == pytest.approx(0.0)
+
+
+def test_scopa_endgame_table_sweep_and_terminal_delta() -> None:
+    """Game ends on a dump; leftover table cards go to last_winner plus score delta."""
+    raw = scopa_raw()
+    raw.reset(seed=0)
+    table_card = _c(Suit.COPPE, 5)
+    play_card = _c(Suit.SPADE, 3)
+    raw.pile.clear()
+    raw.hands['p1'].cards = [play_card]
+    raw.hands['p2'].cards.clear()
+    raw.hands['p1'].seen.update([play_card, table_card])
+    raw.table = [table_card]
+    raw.last_winner = 'p2'
+    raw.agent_selection = 'p1'
+
+    raw.step((CARD_INDEX[play_card], 0))
+    assert raw.terminations['p1'] and raw.terminations['p2']
+
+    sweep = card_value(table_card) + card_value(play_card)
+    dump = card_value(play_card)
+    delta = raw.scores['p1'] - raw.scores['p2']
+    assert raw.rewards['p1'] == pytest.approx(-dump - sweep + delta)
+    assert raw.rewards['p2'] == pytest.approx(dump + sweep - delta)
+    assert raw.rewards['p1'] + raw.rewards['p2'] == pytest.approx(0.0)
 
 
 def test_scopa_dump_on_table_and_endgame_reward() -> None:
@@ -723,9 +772,16 @@ def test_scopa_dump_on_table_and_endgame_reward() -> None:
     raw.hands['p2'].cards.clear()
     raw.table = [_c(Suit.COPPE, 2)]
     raw.last_winner = 'p1'
-    # One more forced capture that ends the game
-    raw.hands['p1'].cards = [_c(Suit.BASTONI, 2)]
+    capture_card = _c(Suit.BASTONI, 2)
+    table_card = _c(Suit.COPPE, 2)
+    raw.hands['p1'].cards = [capture_card]
     raw.agent_selection = 'p1'
-    raw.step((CARD_INDEX[_c(Suit.BASTONI, 2)], 0))
+    raw.step((CARD_INDEX[capture_card], 0))
     assert raw.terminations['p1'] and raw.terminations['p2']
     assert isinstance(raw.scores['p1'], int)
+
+    take_value = card_value(capture_card) + card_value(table_card)
+    delta = raw.scores['p1'] - raw.scores['p2']
+    assert raw.rewards['p1'] == pytest.approx(take_value + delta)
+    assert raw.rewards['p2'] == pytest.approx(-take_value - delta)
+    assert raw.rewards['p1'] + raw.rewards['p2'] == pytest.approx(0.0)
