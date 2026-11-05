@@ -20,11 +20,9 @@ class CardNN(nn.Module):
     def __init__(self, obs_dim: int, actions: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(obs_dim, 256),
+            nn.Linear(obs_dim, 128),
             nn.LeakyReLU(),
-            nn.Linear(256, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(128, 128),
             nn.LeakyReLU(),
             nn.Linear(128, actions),
         )
