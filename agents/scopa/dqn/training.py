@@ -156,7 +156,7 @@ def train(
     )
 
     batch_size = 128
-    gamma = 0.99
+    gamma = 0.9
     target_update_frequency = 1000
     total_steps = 0
     losses: list[float] = []
